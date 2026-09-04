@@ -40,7 +40,7 @@ fun MovieCard(
     movie: MovieItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    width: Dp = 125.dp
+    width: Dp? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -56,9 +56,11 @@ fun MovieCard(
         ApiClient.getAbsoluteUrl(movie.coverUrl)
     }
 
+    val widthMod = if (width != null) Modifier.width(width) else Modifier.fillMaxWidth()
+
     Column(
         modifier = modifier
-            .width(width)
+            .then(widthMod)
             .scale(scale)
             .clickable(
                 interactionSource = interactionSource,
@@ -71,8 +73,8 @@ fun MovieCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .shadow(elevation = 6.dp, shape = RoundedCornerShape(8.dp), clip = false)
-                .clip(RoundedCornerShape(8.dp))
+                .shadow(elevation = 6.dp, shape = PosterShape, clip = false)
+                .clip(PosterShape)
                 .background(DarkSurface)
         ) {
             SubcomposeAsyncImage(
@@ -84,7 +86,7 @@ fun MovieCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
                 loading = {
-                    ShimmerBox(modifier = Modifier.fillMaxSize())
+                    ShimmerBox(modifier = Modifier.fillMaxSize(), shape = PosterShape)
                 },
                 error = {
                     Box(
@@ -131,54 +133,65 @@ fun MovieCard(
                     Icon(
                         imageVector = Icons.Filled.Star,
                         contentDescription = "Rating",
-                        tint = GoldAccent,
+                        tint = RatingGold,
                         modifier = Modifier.size(10.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = movie.rating,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextPrimary,
-                        fontSize = 9.sp
+                        color = RatingGold,
+                        fontSize = 10.sp
                     )
                 }
             }
 
-            // Corner / Dub Badge (Bottom-left)
-            val cornerText = movie.cornerText
-            if (!cornerText.isNullOrBlank()) {
-                Text(
-                    text = cornerText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextPrimary,
-                    fontSize = 9.sp,
+            // Top-right Dub / Corner Badge (e.g. "Hindi", "4K")
+            val corner = movie.cornerText
+            if (!corner.isNullOrBlank()) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
+                        .align(Alignment.TopEnd)
                         .padding(6.dp)
                         .background(
-                            color = NetflixRed.copy(alpha = 0.9f),
-                            shape = RoundedCornerShape(3.dp)
+                            color = PrimaryRed.copy(alpha = 0.90f),
+                            shape = RoundedCornerShape(4.dp)
                         )
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                )
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = corner,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Title (Bold, condensed feel, tight spacing, max 1 line with ellipsis)
+        // Title text (Bold, condensed typography, max 1 line with ellipsis)
         Text(
             text = movie.title,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelLarge,
             color = TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
 
-        // Subtitle (Release year or genre)
-        if (movie.displayYear.isNotBlank() || !movie.genre.isNullOrBlank()) {
+        // Subtitle: Year & Genre
+        val year = movie.displayYear
+        val genre = movie.genre?.split(",")?.firstOrNull()?.trim()
+        val metadataText = listOfNotNull(
+            year.takeIf { it.isNotBlank() },
+            genre.takeIf { !it.isNullOrBlank() }
+        ).joinToString(" • ")
+
+        if (metadataText.isNotBlank()) {
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = listOfNotNull(movie.displayYear.ifBlank { null }, movie.genre).joinToString(" · "),
+                text = metadataText,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 maxLines = 1,

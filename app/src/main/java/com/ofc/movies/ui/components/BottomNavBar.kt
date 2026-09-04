@@ -8,7 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -22,20 +21,50 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ofc.movies.ui.theme.*
 
+// Self-contained download icon vector (0 external dependencies)
+val DownloadNavIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "DownloadNavIcon",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(fill = SolidColor(Color.White)) {
+            moveTo(19f, 9f)
+            horizontalLineTo(15f)
+            verticalLineTo(3f)
+            horizontalLineTo(9f)
+            verticalLineTo(9f)
+            horizontalLineTo(5f)
+            lineTo(12f, 16f)
+            lineTo(19f, 9f)
+            close()
+            moveTo(5f, 18f)
+            verticalLineTo(20f)
+            horizontalLineTo(19f)
+            verticalLineTo(18f)
+            horizontalLineTo(5f)
+            close()
+        }
+    }.build()
+}
+
 enum class NavTab(
     val title: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector
+    val icon: ImageVector
 ) {
-    HOME("Home", Icons.Filled.Home, Icons.Filled.Home),
-    SEARCH("Search", Icons.Filled.Search, Icons.Filled.Search),
-    DOWNLOADS("Downloads", Icons.Filled.ArrowDownward, Icons.Filled.ArrowDownward),
-    PROFILE("Profile", Icons.Filled.Person, Icons.Filled.Person)
+    HOME("Home", Icons.Filled.Home),
+    SEARCH("Search", Icons.Filled.Search),
+    DOWNLOADS("Downloads", DownloadNavIcon),
+    PROFILE("Profile", Icons.Filled.Person)
 }
 
 @Composable
@@ -104,7 +133,7 @@ fun BottomNavBar(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Icon(
-                            imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                            imageVector = tab.icon,
                             contentDescription = tab.title,
                             tint = iconColor,
                             modifier = Modifier.size(24.dp)

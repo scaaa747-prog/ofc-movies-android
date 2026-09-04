@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -18,11 +19,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -30,6 +35,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.ofc.movies.data.api.MovieRepository
 import com.ofc.movies.data.model.PlayableStream
@@ -38,7 +44,6 @@ import com.ofc.movies.ui.theme.PillShape
 import com.ofc.movies.ui.theme.PrimaryRed
 import com.ofc.movies.ui.theme.TextPrimary
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -53,7 +58,6 @@ fun VideoPlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val repository = remember { MovieRepository() }
-    val scope = rememberCoroutineScope()
 
     var streams by remember { mutableStateOf<List<PlayableStream>>(emptyList()) }
     var selectedStream by remember { mutableStateOf<PlayableStream?>(null) }
@@ -66,11 +70,18 @@ fun VideoPlayerScreen(
     var isControlsVisible by remember { mutableStateOf(true) }
     var showQualityDialog by remember { mutableStateOf(false) }
 
-    // Lock landscape during playback
+    // Fullscreen landscape & hide system bars (immersive mode)
     DisposableEffect(Unit) {
+        val window = activity?.window
+        val insetsController = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+        insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+
         val originalOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
         onDispose {
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
             activity?.requestedOrientation = originalOrientation
         }
     }
@@ -82,7 +93,7 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Auto-hide controls after 3 seconds
+    // Auto-hide controls after 3.5 seconds
     LaunchedEffect(isControlsVisible, isPlaying) {
         if (isControlsVisible && isPlaying) {
             delay(3500)
@@ -91,7 +102,7 @@ fun VideoPlayerScreen(
     }
 
     // Periodically update playback position
-    LaunchedEffect(exoPlayer, isPlaying) {
+    LaunchedEffect(exoPlayer) {
         while (true) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
@@ -139,11 +150,22 @@ fun VideoPlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                isControlsVisible = !isControlsVisible
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = {
+                        isControlsVisible = !isControlsVisible
+                    },
+                    onDoubleTap = { offset ->
+                        // Double tap on left half rewinds 10s, right half forwards 10s
+                        if (offset.x < size.width / 2) {
+                            val newPos = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                            exoPlayer.seekTo(newPos)
+                        } else {
+                            val newPos = (exoPlayer.currentPosition + 10000L).coerceAtMost(exoPlayer.duration)
+                            exoPlayer.seekTo(newPos)
+                        }
+                    }
+                )
             }
     ) {
         // 1. Native Media3 PlayerView
@@ -152,6 +174,7 @@ fun VideoPlayerScreen(
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     layoutParams = android.widget.FrameLayout.LayoutParams(
                         android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                         android.widget.FrameLayout.LayoutParams.MATCH_PARENT
@@ -171,7 +194,7 @@ fun VideoPlayerScreen(
                     CircularProgressIndicator(color = PrimaryRed)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Connecting to direct stream...",
+                        text = "Loading direct stream...",
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -218,8 +241,7 @@ fun VideoPlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                        .padding(horizontal = 24.dp, vertical = 20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
@@ -276,7 +298,7 @@ fun VideoPlayerScreen(
                 Row(
                     modifier = Modifier.align(Alignment.Center),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(36.dp)
+                    horizontalArrangement = Arrangement.spacedBy(40.dp)
                 ) {
                     // Rewind 10s
                     IconButton(
@@ -345,8 +367,7 @@ fun VideoPlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .padding(horizontal = 24.dp, vertical = 20.dp)
                 ) {
                     Slider(
                         value = if (totalDurationMs > 0) currentPositionMs.toFloat() / totalDurationMs.toFloat() else 0f,
@@ -433,7 +454,6 @@ fun VideoPlayerScreen(
 @OptIn(UnstableApi::class)
 private fun playStream(player: ExoPlayer, stream: PlayableStream) {
     if (stream.isDash && !stream.signCookie.isNullOrEmpty()) {
-        // Configure DefaultHttpDataSource with signed CloudFront cookie
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("ExoPlayerLib/2.19.1")
             .setDefaultRequestProperties(
