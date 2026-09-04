@@ -8,45 +8,38 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    // Default to the current production tunnel or your self-hosted instance
-    var baseUrl: String = "https://mountains-brings-arrange-highlight.trycloudflare.com/"
-        set(value) {
-            val formatted = if (value.endsWith("/")) value else "$value/"
-            field = formatted
-            retrofit = buildRetrofit(formatted)
-            service = retrofit.create(MovieApiService::class.java)
-        }
+    const val BASE_URL = "https://api6.aoneroom.com/"
 
-    private val okHttpClient: OkHttpClient by lazy {
+    val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor(MovieBoxAuthInterceptor())
             .addInterceptor(HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC
             })
             .build()
     }
 
-    private fun buildRetrofit(url: String): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(url)
+    private val retrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }
 
-    private var retrofit: Retrofit = buildRetrofit(baseUrl)
+    val service: MovieApiService by lazy {
+        retrofit.create(MovieApiService::class.java)
+    }
 
-    var service: MovieApiService = retrofit.create(MovieApiService::class.java)
-        private set
-
-    fun getAbsoluteUrl(relativeOrAbsolute: String): String {
-        if (relativeOrAbsolute.startsWith("http://") || relativeOrAbsolute.startsWith("https://")) {
-            return relativeOrAbsolute
+    fun getAbsoluteUrl(url: String): String {
+        if (url.isEmpty()) return ""
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url
         }
-        val cleanBase = baseUrl.trimEnd('/')
-        val cleanPath = relativeOrAbsolute.trimStart('/')
-        return "$cleanBase/$cleanPath"
+        val cleanPath = url.trimStart('/')
+        return "https://pbcdn.aoneroom.com/$cleanPath"
     }
 }

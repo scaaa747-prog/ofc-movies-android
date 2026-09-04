@@ -100,3 +100,10 @@ val Typography = Typography(
         color = TextPrimary
     )
 )
+
+val NavLabelStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.Medium,
+    fontSize = 10.sp,
+    letterSpacing = 0.sp
+)

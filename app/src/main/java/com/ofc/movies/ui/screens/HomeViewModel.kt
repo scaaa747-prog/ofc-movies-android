@@ -6,7 +6,9 @@ import com.ofc.movies.data.api.MovieRepository
 import com.ofc.movies.data.model.ContinueWatchingItem
 import com.ofc.movies.data.model.HomeCategoryRow
 import com.ofc.movies.data.model.MovieItem
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 sealed interface HomeUiState {
@@ -14,6 +16,7 @@ sealed interface HomeUiState {
     data class Success(
         val heroMovies: List<MovieItem>,
         val continueWatching: List<ContinueWatchingItem>,
+        val top10Movies: List<MovieItem>,
         val rows: List<HomeCategoryRow>
     ) : HomeUiState
     data class Error(val message: String) : HomeUiState
@@ -37,57 +40,37 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.value = HomeUiState.Loading
 
-            val continueWatching = repository.getContinueWatchingList()
+            val result = repository.getHomeSections()
+            result.onSuccess { sections ->
+                val allMovies = sections.flatMap { it.items }.distinctBy { it.id }
+                val heroMovies = allMovies.take(5)
+                val top10 = allMovies.sortedByDescending { it.rating?.toDoubleOrNull() ?: 0.0 }.take(10)
 
-            // Fetch Home Feed & Trending concurrently
-            combine(
-                repository.getHomeFeed(0),
-                repository.getTrending()
-            ) { homeResult, trendingResult ->
-                val homeResponse = homeResult.getOrNull()
-                val trendingItems = trendingResult.getOrNull() ?: emptyList()
-
-                val rows = mutableListOf<HomeCategoryRow>()
-
-                // 1. Trending Now row
-                if (trendingItems.isNotEmpty()) {
-                    rows.add(
-                        HomeCategoryRow(
-                            title = "🔥 Trending Now",
-                            items = trendingItems
+                // Demo continue watching item
+                val continueWatching = if (allMovies.isNotEmpty()) {
+                    listOf(
+                        ContinueWatchingItem(
+                            id = allMovies.first().id,
+                            title = allMovies.first().title,
+                            coverUrl = allMovies.first().coverUrl,
+                            progress = 0.65f,
+                            durationMinutes = 112,
+                            lastWatchedEpisode = null
                         )
                     )
-                }
+                } else emptyList()
 
-                // 2. Add backend curated rows from Home Feed
-                homeResponse?.items?.forEach { category ->
-                    if (category.items.isNotEmpty()) {
-                        rows.add(category)
-                    }
-                }
-
-                // Featured Hero items (first 5 from Trending or first category)
-                val heroItems = if (trendingItems.isNotEmpty()) {
-                    trendingItems.take(5)
-                } else {
-                    homeResponse?.items?.flatMap { it.items }?.take(5) ?: emptyList()
-                }
-
-                if (rows.isNotEmpty() || heroItems.isNotEmpty()) {
-                    HomeUiState.Success(
-                        heroMovies = heroItems,
-                        continueWatching = continueWatching,
-                        rows = rows
-                    )
-                } else {
-                    HomeUiState.Error("No content available. Please verify network connection.")
-                }
-            }.catch { e ->
-                _uiState.value = HomeUiState.Error(e.localizedMessage ?: "Failed to load content")
-            }.collect { state ->
-                _uiState.value = state
-                _isRefreshing.value = false
+                _uiState.value = HomeUiState.Success(
+                    heroMovies = heroMovies,
+                    continueWatching = continueWatching,
+                    top10Movies = if (top10.isNotEmpty()) top10 else heroMovies,
+                    rows = sections
+                )
+            }.onFailure { err ->
+                _uiState.value = HomeUiState.Error(err.localizedMessage ?: "Failed to load content")
             }
+
+            _isRefreshing.value = false
         }
     }
 

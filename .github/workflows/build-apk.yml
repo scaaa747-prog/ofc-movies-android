@@ -29,10 +29,21 @@ jobs:
       - name: Build APK with Gradle
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Copy & Rename APK for Artifact
+      - name: Verify APK Size (< 10MB)
         run: |
           mkdir -p build/outputs/apk/
           cp app/build/outputs/apk/debug/app-debug.apk build/outputs/apk/OFC-Movies-Debug.apk
+          SIZE_BYTES=$(stat -c%s "build/outputs/apk/OFC-Movies-Debug.apk")
+          SIZE_MB=$(echo "scale=2; $SIZE_BYTES / 1048576" | bc)
+          echo "=========================================="
+          echo "Generated APK size: ${SIZE_MB} MB (${SIZE_BYTES} bytes)"
+          echo "=========================================="
+          if [ "$SIZE_BYTES" -gt 10485760 ]; then
+            echo "ERROR: APK size ($SIZE_MB MB) exceeds the strict 10MB limit!"
+            exit 1
+          else
+            echo "SUCCESS: APK size ($SIZE_MB MB) is strictly below 10MB!"
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

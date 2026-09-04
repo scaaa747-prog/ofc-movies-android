@@ -1,6 +1,6 @@
 # OFC Movies — Netflix-Style Android App (Jetpack Compose)
 
-A cinematic, modern movie streaming application built with **Kotlin** and **Jetpack Compose**, adhering strictly to a custom dark-theme design system.
+A cinematic, modern movie streaming application built with **Kotlin** and **Jetpack Compose**, adhering strictly to a custom dark-theme design system, integrating directly with **MovieBox APIs** with client-side HMAC-MD5 request signing and token bootstrapping, and optimized to be **under 10 MB**.
 
 ---
 
@@ -19,16 +19,78 @@ A cinematic, modern movie streaming application built with **Kotlin** and **Jetp
 
 ---
 
-## 📱 Features & Components Built
+## 🚀 Direct MovieBox Integration
 
-* **`Color.kt`, `Type.kt`, `Theme.kt`:** Zero default Material3 purple/blue colors. Custom cinematic dark scheme.
-* **`HeroBanner.kt`:** Auto-scrolling featured carousel with gradient overlays (`transparent` to `#0A0A0F`), title, pill-shaped Play CTA (`#E50914`), and Details button.
-* **`MovieCard.kt`:** 2:3 aspect ratio, 8dp rounded corners, scale-up animation on press, gold rating badges, and dub tags.
-* **`ContinueWatchingCard.kt`:** Horizontal card with real progress bar overlay and centered play icon.
-* **`MovieRow.kt`:** Smooth horizontal scrolling (`LazyRow`) for curated movie rows.
-* **`BottomNavBar.kt`:** Custom bottom navigation bar with red pill indicator for the active tab (Home, Search, Downloads, Profile).
-* **`ShimmerLoading.kt`:** Shimmer placeholder effect while images load via Coil.
-* **`HomeScreen.kt`:** Full featured home screen with top branding bar, Hero banner, Continue Watching, and categorized rows.
+The app connects **directly** to MovieBox upstream services without requiring any intermediate backend server:
+* **Gateway Endpoint:** `https://api6.aoneroom.com` (with fallback to `api5.aoneroom.com`)
+* **Security & Signing Layer (`MovieBoxSigner.kt` & `MovieBoxAuthInterceptor.kt`):**
+  - Canonical request generation with alphabetically sorted query parameters.
+  - Client-side HMAC-MD5 cryptographic signature (`x-tr-signature`).
+  - Dynamic timestamp-hashed token (`X-Client-Token`).
+  - Automatic guest token bootstrapping via `/wefeed-mobile-bff/tab-operating` with transparent 401 retry handling.
+* **Direct Streaming (`VideoPlayerScreen.kt`):**
+  - CloudFront signed cookie parser (`CloudFront-Policy`) resolving `.mpd` adaptive DASH streams from `sacdn.hakunaymatata.com`.
+  - Media3 ExoPlayer with `DefaultHttpDataSource.Factory` injecting signed cookies and headers for direct, smooth 1080p/720p/480p playback.
+  - Fallback to direct MP4/HLS stream URLs.
+
+---
+
+## 📱 Features & Screens
+
+1. **Splash Screen (`SplashScreen.kt`):**
+   - Cinematic `#0A0A0F` backdrop with pulsing OFC Movies logo.
+   - Transparent session bootstrap in the background.
+   - Smooth transition into Onboarding or Main screen.
+2. **Onboarding Screen (`OnboardingScreen.kt`):**
+   - 3-card horizontal carousel showcasing Blockbuster Entertainment, Ultra HD 4K DASH Streaming, and Zero Signup Access.
+   - Dot indicator, Skip button, and Deep Red "Get Started" pill button.
+3. **Home Screen (`HomeScreen.kt`):**
+   - Floating top branding header with search & profile buttons.
+   - Hero banner carousel with auto-rotation, Play and Details pill buttons.
+   - Category filter pills ("All", "Action", "Drama", "Sci-Fi", "Comedy", "Animation", "Thriller").
+   - Continue Watching row with real progress bar overlay and play icon.
+   - Top 10 Today row with massive Netflix-style ranking numbers (`1`, `2`, `3`...).
+   - Curated horizontal scrolling rows from official MovieBox feeds.
+4. **Movie Detail Screen (`MovieDetailScreen.kt`):**
+   - Parallax poster backdrop header fading seamlessly into `#0A0A0F`.
+   - Title, Gold rating badge (`#FFD700`), release year, 4K Ultra HD badge, and genres.
+   - Large Red "Play Now" pill button and "My List" toggle.
+   - Multi-audio dub selector (Hindi, English, Tamil, Telugu, Spanish, etc.).
+   - Season & Episode selector pills for TV series.
+   - Storyline description with smooth expand/collapse animation.
+   - Cast & Crew row with avatars and role names.
+   - "More Like This" recommendations carousel.
+5. **Video Player Screen (`VideoPlayerScreen.kt`):**
+   - Built on Media3 ExoPlayer with native DASH playback and signed CloudFront cookie injector.
+   - Auto-hiding custom controls overlay (3-second idle timer, tap to toggle).
+   - Top bar: Back navigation, title, season/episode indicator, and stream quality pill.
+   - Center: Rewind 10s, Play/Pause circle button, and Forward 10s.
+   - Bottom bar: Current position, deep red scrubber slider, total duration, and stream quality dialog (1080P, 720P, 480P).
+6. **Search Screen (`SearchScreen.kt`):**
+   - Debounced search bar (400ms) with instant clear action.
+   - Category exploration chips and Recent Searches with "Clear All".
+   - 3-column responsive poster grid with empty state suggestions.
+7. **My Library (`MyListScreen.kt`):**
+   - Watchlist and History tabs with 3-column movie grid.
+8. **Downloads Manager (`DownloadsScreen.kt`):**
+   - Device storage breakdown bar (used vs free space).
+   - Downloaded media list with quality tags and offline playback launcher.
+9. **Profile & Settings (`ProfileScreen.kt`):**
+   - Streaming quality preferences dialog.
+   - Image & Stream cache cleaner (clears Coil disk & memory caches).
+   - App version and direct MovieBox gateway status.
+10. **Category Explorer (`CategoryScreen.kt`):**
+    - Deep-filtered 3-column movie grid for specific genres.
+
+---
+
+## ⚡ Sub-10MB Size Optimization
+
+* **R8 Minification & Code Shrinking:** `isMinifyEnabled = true` strips all unused classes, methods, and SDK code.
+* **Resource Shrinking:** `isShrinkResources = true` removes all unreferenced drawables and layouts.
+* **Locale Stripping:** `resourceConfigurations += listOf("en")` eliminates bloated multi-language string tables.
+* **Lean Icons:** Standard lightweight vector drawables, eliminating the 30MB `material-icons-extended` dependency.
+* **ProGuard Optimization:** Custom `proguard-rules.pro` tailored for Retrofit, OkHttp, Gson, Coil, and Media3 ExoPlayer.
 
 ---
 
@@ -37,5 +99,6 @@ A cinematic, modern movie streaming application built with **Kotlin** and **Jetp
 The application is built automatically in the cloud via GitHub Actions. **No local compilation is required.**
 
 1. On every commit pushed to `main`, GitHub Actions spins up an Ubuntu environment with JDK 17 and Android SDK 34.
-2. The workflow executes `./gradlew assembleDebug`.
-3. The compiled APK is uploaded as a downloadable artifact: **`OFC-Movies-Android-APK`** under the Actions tab.
+2. The workflow executes `./gradlew assembleDebug --stacktrace`.
+3. The workflow verifies that the compiled APK size is strictly **under 10 MB**.
+4. The compiled APK is uploaded as a downloadable artifact: **`OFC-Movies-Android-APK`** under the Actions tab.

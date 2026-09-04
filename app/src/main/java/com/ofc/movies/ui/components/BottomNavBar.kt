@@ -8,16 +8,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,10 +32,10 @@ enum class NavTab(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    HOME("Home", Icons.Filled.Home, Icons.Outlined.Home),
-    SEARCH("Search", Icons.Filled.Search, Icons.Outlined.Search),
-    DOWNLOADS("Downloads", Icons.Filled.Download, Icons.Outlined.Download),
-    PROFILE("Profile", Icons.Filled.Person, Icons.Outlined.Person)
+    HOME("Home", Icons.Filled.Home, Icons.Filled.Home),
+    SEARCH("Search", Icons.Filled.Search, Icons.Filled.Search),
+    DOWNLOADS("Downloads", Icons.Filled.ArrowDownward, Icons.Filled.ArrowDownward),
+    PROFILE("Profile", Icons.Filled.Person, Icons.Filled.Person)
 }
 
 @Composable
@@ -59,44 +55,50 @@ fun BottomNavBar(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(0.5.dp)
-                    .background(DarkSurfaceElevated)
+                    .height(1.dp)
+                    .background(DarkBorder)
             )
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .height(60.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                NavTab.entries.forEach { tab ->
+                NavTab.values().forEach { tab ->
                     val isSelected = tab == selectedTab
                     val iconColor by animateColorAsState(
-                        targetValue = if (isSelected) NetflixRed else TextMuted,
-                        animationSpec = tween(200),
-                        label = "tabIconColor"
+                        targetValue = if (isSelected) PrimaryRed else TextSecondary,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "iconColor"
+                    )
+                    val textColor by animateColorAsState(
+                        targetValue = if (isSelected) TextPrimary else TextSecondary,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "textColor"
                     )
 
-                    // Custom pill indicator for active tab (NOT default Material3)
                     Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .weight(1f)
+                            .fillMaxHeight()
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { onTabSelected(tab) }
-                            )
-                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                                indication = null
+                            ) {
+                                onTabSelected(tab)
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        // Tiny top pill indicator above icon when selected
+                        // Pill indicator above active tab
                         Box(
                             modifier = Modifier
-                                .width(16.dp)
-                                .height(2.dp)
-                                .clip(RoundedCornerShape(1.dp))
-                                .background(if (isSelected) NetflixRed else Color.Transparent)
+                                .width(if (isSelected) 18.dp else 0.dp)
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
+                                .background(if (isSelected) PrimaryRed else Color.Transparent)
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -105,16 +107,16 @@ fun BottomNavBar(
                             imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                             contentDescription = tab.title,
                             tint = iconColor,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(24.dp)
                         )
 
                         Spacer(modifier = Modifier.height(3.dp))
 
                         Text(
                             text = tab.title,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = if (isSelected) TextPrimary else TextMuted
+                            color = textColor,
+                            style = NavLabelStyle,
+                            fontSize = 10.sp
                         )
                     }
                 }

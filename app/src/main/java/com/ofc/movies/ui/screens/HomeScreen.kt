@@ -35,119 +35,148 @@ fun HomeScreen(
     onSearchClick: () -> Unit,
     onProfileClick: () -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
+    onCategoryClick: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedTab by remember { mutableStateOf(NavTab.HOME) }
+    var selectedCategory by remember { mutableStateOf("All") }
+    val categories = listOf("All", "Action", "Drama", "Sci-Fi", "Comedy", "Animation", "Thriller")
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = DarkBackground,
-        bottomBar = {
-            BottomNavBar(
-                selectedTab = selectedTab,
-                onTabSelected = { tab ->
-                    selectedTab = tab
-                    when (tab) {
-                        NavTab.SEARCH -> onSearchClick()
-                        NavTab.PROFILE -> onProfileClick()
-                        else -> { /* Stay or navigate */ }
-                    }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+    ) {
+        Crossfade(
+            targetState = uiState,
+            animationSpec = tween(400),
+            label = "homeCrossfade"
+        ) { state ->
+            when (state) {
+                is HomeUiState.Loading -> {
+                    HomeScreenSkeleton()
                 }
-            )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = innerPadding.calculateBottomPadding())
-        ) {
-            Crossfade(
-                targetState = uiState,
-                animationSpec = tween(400),
-                label = "homeCrossfade"
-            ) { state ->
-                when (state) {
-                    is HomeUiState.Loading -> {
-                        HomeScreenSkeleton()
-                    }
-                    is HomeUiState.Error -> {
-                        HomeErrorState(
-                            message = state.message,
-                            onRetry = { viewModel.loadHomeContent() }
-                        )
-                    }
-                    is HomeUiState.Success -> {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 24.dp)
-                        ) {
-                            // 1. Hero Banner Carousel
-                            if (state.heroMovies.isNotEmpty()) {
-                                item(key = "hero_banner") {
-                                    HeroBanner(
-                                        featuredMovies = state.heroMovies,
-                                        onPlayClick = { movie -> onMovieClick(movie) },
-                                        onDetailClick = { movie -> onMovieClick(movie) }
-                                    )
-                                }
+                is HomeUiState.Error -> {
+                    HomeErrorState(
+                        message = state.message,
+                        onRetry = { viewModel.loadHomeContent() }
+                    )
+                }
+                is HomeUiState.Success -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        // 1. Hero Banner Carousel
+                        if (state.heroMovies.isNotEmpty()) {
+                            item(key = "hero_banner") {
+                                HeroBanner(
+                                    featuredMovies = state.heroMovies,
+                                    onPlayClick = { movie -> onMovieClick(movie) },
+                                    onDetailClick = { movie -> onMovieClick(movie) }
+                                )
                             }
+                        }
 
-                            // 2. Continue Watching Section (with progress bar overlay)
-                            if (state.continueWatching.isNotEmpty()) {
-                                item(key = "continue_watching_section") {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 16.dp, bottom = 8.dp)
+                        // 2. Category Filter Pills
+                        item(key = "category_chips") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(categories) { cat ->
+                                    val isSelected = cat == selectedCategory
+                                    Surface(
+                                        shape = RoundedCornerShape(24.dp),
+                                        color = if (isSelected) PrimaryRed else DarkCard,
+                                        modifier = Modifier.clickable {
+                                            selectedCategory = cat
+                                            if (cat != "All") {
+                                                onCategoryClick(cat)
+                                            }
+                                        }
                                     ) {
                                         Text(
-                                            text = "Continue Watching",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = TextPrimary,
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                            text = cat,
+                                            color = if (isSelected) Color.White else TextSecondary,
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
+                                    }
+                                }
+                            }
+                        }
 
-                                        Spacer(modifier = Modifier.height(6.dp))
+                        // 3. Continue Watching Section (with progress bar overlay)
+                        if (state.continueWatching.isNotEmpty()) {
+                            item(key = "continue_watching_section") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp, bottom = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "Continue Watching",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = (-0.5).sp
+                                        ),
+                                        color = TextPrimary,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                    )
 
-                                        LazyRow(
-                                            contentPadding = PaddingValues(horizontal = 16.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            items(state.continueWatching, key = { it.id }) { item ->
-                                                ContinueWatchingCard(
-                                                    item = item,
-                                                    onClick = { onContinueWatchingClick(item) }
-                                                )
-                                            }
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(state.continueWatching, key = { it.id }) { item ->
+                                            ContinueWatchingCard(
+                                                item = item,
+                                                onClick = { onContinueWatchingClick(item) }
+                                            )
                                         }
                                     }
                                 }
                             }
+                        }
 
-                            // 3. Horizontal Scrolling Content Rows (Trending, New Releases, Genres)
-                            items(state.rows, key = { it.title }) { row ->
-                                Spacer(modifier = Modifier.height(12.dp))
-                                MovieRow(
-                                    title = row.title,
-                                    movies = row.items,
+                        // 4. Top 10 with big numbers
+                        if (state.top10Movies.isNotEmpty()) {
+                            item(key = "top_10_today") {
+                                Top10MovieRow(
+                                    movies = state.top10Movies,
                                     onMovieClick = onMovieClick
                                 )
                             }
                         }
+
+                        // 5. Horizontal Scrolling Content Rows (Hollywood, Trending, Coming Soon, etc.)
+                        items(state.rows, key = { it.title }) { row ->
+                            Spacer(modifier = Modifier.height(12.dp))
+                            MovieRow(
+                                title = row.title,
+                                movies = row.items,
+                                onMovieClick = onMovieClick
+                            )
+                        }
                     }
                 }
             }
-
-            // Top Header: App Logo + Search Icon + Profile Avatar (Floating on gradient)
-            HomeTopBar(
-                onSearchClick = onSearchClick,
-                onProfileClick = onProfileClick,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
         }
+
+        // Top Header: App Logo + Search Icon + Profile Avatar (Floating on gradient)
+        HomeTopBar(
+            onSearchClick = onSearchClick,
+            onProfileClick = onProfileClick,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
     }
 }
 
@@ -209,7 +238,6 @@ fun HomeTopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Search Icon Button
                 IconButton(
                     onClick = onSearchClick,
                     modifier = Modifier.size(36.dp)
@@ -222,7 +250,6 @@ fun HomeTopBar(
                     )
                 }
 
-                // Profile Avatar Icon (Circular red border)
                 Box(
                     modifier = Modifier
                         .size(32.dp)
@@ -249,34 +276,37 @@ fun HomeScreenSkeleton() {
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Hero Banner Skeleton
+        // Hero Skeleton
         ShimmerBox(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(420.dp),
-            shape = RoundedCornerShape(0.dp)
+                .height(480.dp)
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Row 1 Skeleton
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            ShimmerBox(
-                modifier = Modifier
-                    .width(140.dp)
-                    .height(20.dp),
-                shape = RoundedCornerShape(4.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                repeat(3) {
-                    ShimmerBox(
-                        modifier = Modifier
-                            .width(120.dp)
-                            .aspectRatio(2f / 3f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                }
+        // Row 1 Title Skeleton
+        ShimmerBox(
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .size(width = 140.dp, height = 20.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Row 1 Posters Skeleton
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            repeat(4) {
+                ShimmerBox(
+                    modifier = Modifier
+                        .size(width = 120.dp, height = 180.dp)
+                        .clip(PosterShape)
+                )
             }
         }
     }
@@ -291,28 +321,41 @@ fun HomeErrorState(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .background(DarkBackground)
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
-                text = "Unable to load movies",
-                style = MaterialTheme.typography.titleMedium,
+                text = "Unable to connect",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = TextPrimary
             )
+
             Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
-            Spacer(modifier = Modifier.height(18.dp))
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Button(
                 onClick = onRetry,
-                shape = RoundedCornerShape(24.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = NetflixRed)
+                shape = PillShape,
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                modifier = Modifier.height(48.dp)
             ) {
-                Text(text = "Retry", color = TextPrimary)
+                Text(
+                    text = "Retry",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
             }
         }
     }

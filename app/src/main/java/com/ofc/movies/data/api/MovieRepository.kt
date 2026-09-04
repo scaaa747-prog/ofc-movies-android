@@ -2,86 +2,178 @@ package com.ofc.movies.data.api
 
 import com.ofc.movies.data.model.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 class MovieRepository(
-    private val apiService: MovieApiService = ApiClient.service
+    private val api: MovieApiService = ApiClient.service
 ) {
 
-    fun getHomeFeed(tabId: Int = 0): Flow<Result<HomeFeedResponse>> = flow {
+    suspend fun getHomeSections(): Result<List<HomeCategoryRow>> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.getHomeFeed(tabId)
-            emit(Result.success(response))
-        } catch (e: Exception) {
-            emit(Result.failure(e))
-        }
-    }.flowOn(Dispatchers.IO)
+            val response = api.getTabOperating(tabId = 0, page = 1)
+            val rawItems = response.data?.items ?: emptyList()
 
-    fun getTrending(): Flow<Result<List<MovieItem>>> = flow {
-        try {
-            val response = apiService.getTrending()
-            val items = response.data?.items ?: emptyList()
-            emit(Result.success(items))
-        } catch (e: Exception) {
-            emit(Result.failure(e))
-        }
-    }.flowOn(Dispatchers.IO)
+            val filteredSections = mutableListOf<HomeCategoryRow>()
+            val bannedKeywords = listOf("short tv", "shorts", "18+", "adult", "erotic", "fight zone", "banner", "update")
 
-    fun searchMovies(query: String, page: Int = 1, type: Int = 0): Flow<Result<List<MovieItem>>> = flow {
-        try {
-            val response = apiService.search(query, page, type)
-            emit(Result.success(response.items))
-        } catch (e: Exception) {
-            emit(Result.failure(e))
-        }
-    }.flowOn(Dispatchers.IO)
+            for (sec in rawItems) {
+                val title = sec.title.trim()
+                val titleLower = title.lowercase()
 
-    fun getMovieDetail(subjectId: String): Flow<Result<MovieDetailResponse>> = flow {
-        try {
-            val response = apiService.getMovieDetail(subjectId)
-            emit(Result.success(response))
-        } catch (e: Exception) {
-            emit(Result.failure(e))
-        }
-    }.flowOn(Dispatchers.IO)
+                if (bannedKeywords.any { titleLower.contains(it) }) continue
 
-    fun getStreamResources(subjectId: String, season: Int = 0, episode: Int = 0): Flow<Result<List<StreamResource>>> = flow {
-        try {
-            val response = apiService.getResources(subjectId, season, episode)
-            val list = response.data?.list ?: emptyList()
-            emit(Result.success(list))
-        } catch (e: Exception) {
-            emit(Result.failure(e))
-        }
-    }.flowOn(Dispatchers.IO)
+                val safeSubjects = sec.subjects.filter { it.isFamilySafe }
+                if (safeSubjects.isNotEmpty()) {
+                    filteredSections.add(
+                        HomeCategoryRow(
+                            title = title.ifEmpty { "Featured" },
+                            type = sec.type,
+                            items = safeSubjects
+                        )
+                    )
+                }
+            }
 
-    // Demo/Cached Continue Watching list
-    fun getContinueWatchingList(): List<ContinueWatchingItem> {
-        return listOf(
-            ContinueWatchingItem(
-                id = "8282836313385190960",
-                title = "JoJo's Bizarre Adventure [Hindi]",
-                coverUrl = "/img/v/BRYrAwdISk4dPRVWMV0AAxo6QF9dW0MBMB5bGwgACjpZAG9BV0NEbh0CBRkJU24QEBNcAl5sRwc7EgRZF2dQCVZTCVA7QkcUUlNfalhYLxQ.webp?w=180&q=45",
-                progress = 0.65f,
-                durationMinutes = 24,
-                lastWatchedEpisode = "S1 E5"
-            ),
-            ContinueWatchingItem(
-                id = "5349301616099452064",
-                title = "Gandhari [Hindi]",
-                coverUrl = "/img/v/BRYrAwdISk4dPRVWMV0AAxo6QF9dW0MBMB5bGwgACjpZAG9BV0NEZh0AABkOBjkWEEdcAlQ-FAVmEFlfTGdTVgIBWAM5FUQXUAcLO1hYLxQ.webp?w=180&q=45",
-                progress = 0.35f,
-                durationMinutes = 112
-            ),
-            ContinueWatchingItem(
-                id = "7826893701690839800",
-                title = "The Runner [Hindi]",
-                coverUrl = "/img/v/BRYrAwdISk4dPRVWMV0AAxo6QF9dW0MBMB5bGwgACjpZAG9BV0NEZh0AABkOBjkWEEdcAlQ-FAVmEFlfTGdTVgIBWAM5FUQXUAcLO1hYLxQ.webp?w=180&q=45",
-                progress = 0.82f,
-                durationMinutes = 98
-            )
-        )
+            Result.success(filteredSections)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
+
+    suspend fun getMovieDetail(subjectId: String): Result<MovieDetailData> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.getSubjectDetail(subjectId)
+            val data = response.data ?: throw IllegalStateException("Empty subject detail")
+            Result.success(data)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getSeasonInfo(subjectId: String): Result<List<SeasonItem>> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.getSeasonInfo(subjectId)
+            val seasons = response.data?.seasons ?: emptyList()
+            Result.success(seasons)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getRecommendations(subjectId: String): Result<List<MovieItem>> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.getRecommendations(RelatedRecRequestBody(subjectId))
+            val items = response.data?.items?.filter { it.isFamilySafe } ?: emptyList()
+            Result.success(items)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun searchMovies(query: String, page: Int = 1): Result<List<MovieItem>> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.search(
+                SearchRequestBody(
+                    keyword = query,
+                    page = page,
+                    perPage = 20,
+                    subjectType = 0
+                )
+            )
+            val items = response.data?.items?.filter { it.isFamilySafe } ?: emptyList()
+            Result.success(items)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPlayableStreams(subjectId: String, se: Int = 0, ep: Int = 0): Result<List<PlayableStream>> =
+        withContext(Dispatchers.IO) {
+            try {
+                val playInfoResp = api.getPlayInfo(subjectId = subjectId, se = se, ep = ep)
+                val streams = playInfoResp.data?.streams ?: emptyList()
+                val playable = mutableListOf<PlayableStream>()
+
+                for (s in streams) {
+                    val cookie = s.signCookie ?: ""
+                    val resString = s.resolutions ?: "1080"
+                    val codec = s.codecName ?: "h265"
+                    val size = s.size
+                    val duration = s.duration
+
+                    if (cookie.contains("CloudFront-Policy=")) {
+                        val baseDashUrl = MovieBoxSigner.extractBaseDashUrl(cookie)
+                        if (baseDashUrl != null) {
+                            val mpdUrl = "$baseDashUrl/index.mpd"
+                            val resList = resString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            val effectiveList = if (resList.isEmpty()) listOf("1080") else resList
+
+                            for (rVal in effectiveList) {
+                                val rInt = rVal.toIntOrNull() ?: 1080
+                                playable.add(
+                                    PlayableStream(
+                                        title = "${rInt}P HD",
+                                        resolution = rInt,
+                                        codecName = codec,
+                                        size = size,
+                                        duration = duration,
+                                        streamUrl = mpdUrl,
+                                        isDash = true,
+                                        signCookie = cookie,
+                                        season = se,
+                                        episode = ep
+                                    )
+                                )
+                            }
+                        }
+                    } else {
+                        val url = s.url ?: ""
+                        if (url.isNotEmpty() && !url.contains("9a0461bc39da389663bf3dbb17091d3f")) {
+                            val rInt = resString.split(",").firstOrNull()?.trim()?.toIntOrNull() ?: 720
+                            playable.add(
+                                PlayableStream(
+                                    title = "${rInt}P",
+                                    resolution = rInt,
+                                    codecName = codec,
+                                    size = size,
+                                    duration = duration,
+                                    streamUrl = url,
+                                    isDash = false,
+                                    season = se,
+                                    episode = ep
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // If playInfo returned nothing, check resources endpoint as fallback
+                if (playable.isEmpty()) {
+                    val resResp = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
+                    val rawList = resResp.data?.list ?: emptyList()
+                    for (r in rawList) {
+                        val link = r.resourceLink ?: ""
+                        if (link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f") && !link.contains("/other/2026/09/01/")) {
+                            playable.add(
+                                PlayableStream(
+                                    title = "${r.resolution}P",
+                                    resolution = r.resolution,
+                                    codecName = r.codecName ?: "h264",
+                                    size = r.size,
+                                    duration = 0L,
+                                    streamUrl = link,
+                                    isDash = false,
+                                    season = se,
+                                    episode = ep
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Result.success(playable.sortedByDescending { it.resolution })
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 }

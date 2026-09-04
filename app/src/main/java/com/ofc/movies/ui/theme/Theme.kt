@@ -41,6 +41,11 @@ val Shapes = Shapes(
     extraLarge = RoundedCornerShape(24.dp) // 24dp for pill buttons
 )
 
+// Design System Shape Aliases
+val PillShape = RoundedCornerShape(24.dp)
+val PosterShape = RoundedCornerShape(8.dp)
+val CardShape = RoundedCornerShape(12.dp)
+
 @Composable
 fun OFCMoviesTheme(
     content: @Composable () -> Unit

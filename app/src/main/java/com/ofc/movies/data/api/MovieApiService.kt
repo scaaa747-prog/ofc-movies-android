@@ -1,53 +1,52 @@
 package com.ofc.movies.data.api
 
 import com.ofc.movies.data.model.*
+import retrofit2.http.Body
 import retrofit2.http.GET
-import retrofit2.http.Path
+import retrofit2.http.POST
 import retrofit2.http.Query
 
 interface MovieApiService {
 
-    @GET("api/home")
-    suspend fun getHomeFeed(
-        @Query("tabId") tabId: Int = 0
-    ): HomeFeedResponse
-
-    @GET("api/trending")
-    suspend fun getTrending(): TrendingResponse
-
-    @GET("api/search")
-    suspend fun search(
-        @Query("q") query: String,
+    @GET("wefeed-mobile-bff/tab-operating")
+    suspend fun getTabOperating(
+        @Query("tabId") tabId: Int = 0,
         @Query("page") page: Int = 1,
-        @Query("type") type: Int = 0
+        @Query("version") version: String = ""
+    ): TabOperatingResponse
+
+    @GET("wefeed-mobile-bff/subject-api/get")
+    suspend fun getSubjectDetail(
+        @Query("subjectId") subjectId: String
+    ): SubjectDetailResponse
+
+    @POST("wefeed-mobile-bff/subject-api/search")
+    suspend fun search(
+        @Body request: SearchRequestBody
     ): SearchResponse
 
-    @GET("api/suggest")
-    suspend fun suggest(
-        @Query("q") query: String
-    ): SuggestResponse
+    @GET("wefeed-mobile-bff/subject-api/season-info")
+    suspend fun getSeasonInfo(
+        @Query("subjectId") subjectId: String
+    ): SeasonInfoResponse
 
-    @GET("api/detail/{id}")
-    suspend fun getMovieDetail(
-        @Path("id") subjectId: String
-    ): MovieDetailResponse
+    @POST("wefeed-mobile-bff/subject-api/play-related-rec")
+    suspend fun getRecommendations(
+        @Body request: RelatedRecRequestBody
+    ): RelatedRecResponse
 
-    @GET("api/resources")
+    @GET("wefeed-mobile-bff/subject-api/play-info")
+    suspend fun getPlayInfo(
+        @Query("subjectId") subjectId: String,
+        @Query("se") se: Int = 0,
+        @Query("ep") ep: Int = 0
+    ): PlayInfoResponse
+
+    @GET("wefeed-mobile-bff/subject-api/resource")
     suspend fun getResources(
         @Query("subjectId") subjectId: String,
-        @Query("se") season: Int = 0,
-        @Query("ep") episode: Int = 0
+        @Query("se") se: Int = 0,
+        @Query("ep") ep: Int = 0,
+        @Query("page") page: Int = 1
     ): ResourcesResponse
-
-    @GET("api/subtitles")
-    suspend fun getSubtitles(
-        @Query("subjectId") subjectId: String,
-        @Query("se") season: Int = 0,
-        @Query("ep") episode: Int = 0
-    ): SubtitlesResponse
-
-    @GET("api/related/{id}")
-    suspend fun getRelated(
-        @Path("id") subjectId: String
-    ): List<MovieItem>
 }

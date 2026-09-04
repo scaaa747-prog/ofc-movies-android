@@ -9,10 +9,17 @@ val DarkSurface = Color(0xFF16161F)
 val DarkSurfaceElevated = Color(0xFF22222E)
 val DarkSurfaceHighlight = Color(0xFF2C2C3A)
 
+// Design System Aliases
+val DarkCard = DarkSurface
+val DarkBorder = DarkSurfaceElevated
+
 // Accents
 val NetflixRed = Color(0xFFE50914)
 val NetflixRedDark = Color(0xFFB80610)
 val GoldAccent = Color(0xFFFFD700)
+
+val PrimaryRed = NetflixRed
+val RatingGold = GoldAccent
 
 // Text Colors
 val TextPrimary = Color(0xFFFFFFFF)
