@@ -124,9 +124,9 @@ fun VideoPlayerScreen(
                 val preferred = storageManager.getDefaultQuality()
                 val stream = sList.firstOrNull { s ->
                     when {
-                        preferred.contains("1080") -> s.resolution.contains("1080")
-                        preferred.contains("720") -> s.resolution.contains("720")
-                        preferred.contains("480") -> s.resolution.contains("480")
+                        preferred.contains("1080") -> s.resolution >= 1080
+                        preferred.contains("720") -> s.resolution in 720..1079
+                        preferred.contains("480") -> s.resolution < 720
                         else -> true
                     }
                 } ?: sList.first()
