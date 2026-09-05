@@ -52,7 +52,8 @@ fun MovieRow(
             items(movies, key = { it.id.ifBlank { it.title } }) { movie ->
                 MovieCard(
                     movie = movie,
-                    onClick = { onMovieClick(movie) }
+                    onClick = { onMovieClick(movie) },
+                    width = 125.dp
                 )
             }
         }

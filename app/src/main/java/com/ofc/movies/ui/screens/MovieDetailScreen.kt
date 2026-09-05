@@ -76,16 +76,21 @@ fun MovieDetailScreen(
         val detResult = repository.getMovieDetail(movieId)
         detResult.onSuccess { data ->
             movieDetail = data
-            // Fetch seasons if series
-            if (data.subjectType == 1 || data.subjectType == 2) {
+            // Fetch seasons ONLY if TV Series (subjectType == 2)
+            if (data.subjectType == 2) {
                 val seasonsRes = repository.getSeasonInfo(movieId)
                 seasonsRes.onSuccess { sList ->
-                    seasons = sList
-                    if (sList.isNotEmpty()) {
-                        selectedSeason = sList.first().seasonNumber
+                    val validSeasons = sList.filter { it.seasonNumber > 0 }
+                    seasons = validSeasons
+                    if (validSeasons.isNotEmpty()) {
+                        selectedSeason = validSeasons.first().seasonNumber
                         selectedEpisode = 1
                     }
                 }
+            } else {
+                seasons = emptyList()
+                selectedSeason = 0
+                selectedEpisode = 0
             }
 
             // Fetch recommendations
@@ -111,14 +116,36 @@ fun MovieDetailScreen(
         } else if (errorMsg != null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(text = errorMsg ?: "Error", color = TextPrimary)
+                    Text(text = errorMsg ?: "Error loading title", color = TextPrimary)
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
                             scope.launch {
                                 isLoading = true
+                                errorMsg = null
                                 val detResult = repository.getMovieDetail(movieId)
-                                detResult.onSuccess { movieDetail = it }
+                                detResult.onSuccess { data ->
+                                    movieDetail = data
+                                    if (data.subjectType == 2) {
+                                        val seasonsRes = repository.getSeasonInfo(movieId)
+                                        seasonsRes.onSuccess { sList ->
+                                            val validSeasons = sList.filter { it.seasonNumber > 0 }
+                                            seasons = validSeasons
+                                            if (validSeasons.isNotEmpty()) {
+                                                selectedSeason = validSeasons.first().seasonNumber
+                                                selectedEpisode = 1
+                                            }
+                                        }
+                                    } else {
+                                        seasons = emptyList()
+                                        selectedSeason = 0
+                                        selectedEpisode = 0
+                                    }
+                                    val recResult = repository.getRecommendations(movieId)
+                                    recResult.onSuccess { recommendations = it }
+                                }.onFailure { err ->
+                                    errorMsg = err.localizedMessage ?: "Failed to load movie details"
+                                }
                                 isLoading = false
                             }
                         },
@@ -284,20 +311,22 @@ fun MovieDetailScreen(
                             // Play Button (Large Red Pill)
                             Button(
                                 onClick = {
+                                    val playSeason = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedSeason else 0
+                                    val playEpisode = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedEpisode else 0
                                     storageManager.updateContinueWatching(
                                         id = movieId,
                                         title = detail.title,
                                         coverUrl = detail.coverUrl,
                                         positionMs = 1000L,
                                         durationMs = 7200000L,
-                                        season = if (seasons.isNotEmpty()) selectedSeason else 0,
-                                        episode = if (seasons.isNotEmpty()) selectedEpisode else 0
+                                        season = playSeason,
+                                        episode = playEpisode
                                     )
                                     onPlayClick(
                                         selectedDubId,
                                         detail.title,
-                                        if (seasons.isNotEmpty()) selectedSeason else 0,
-                                        if (seasons.isNotEmpty()) selectedEpisode else 0
+                                        playSeason,
+                                        playEpisode
                                     )
                                 },
                                 shape = PillShape,

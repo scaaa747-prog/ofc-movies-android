@@ -37,8 +37,8 @@ class MovieBoxAuthInterceptor : Interceptor {
         val signedRequest = signRequest(originalRequest, token)
         var response = chain.proceed(signedRequest)
 
-        // 3. If 401 Unauthorized, refresh bootstrap token and retry once
-        if (response.code == 401) {
+        // 3. If 401 Unauthorized or 407 Signature invalid, refresh bootstrap token and retry once
+        if (response.code == 401 || response.code == 407) {
             response.close()
             val refreshedToken = bootstrapToken()
             val retryRequest = signRequest(originalRequest, refreshedToken)
@@ -54,11 +54,14 @@ class MovieBoxAuthInterceptor : Interceptor {
         val method = request.method
         val bodyStr = requestBodyToString(request.body)
 
+        // Ensure wire Content-Type and signature Content-Type match identically byte-for-byte
+        val wireContentType = request.body?.contentType()?.toString() ?: "application/json"
+
         val clientToken = MovieBoxSigner.generateXClientToken(ts)
         val signature = MovieBoxSigner.generateXTrSignature(
             method = method,
             accept = "application/json",
-            contentType = "application/json",
+            contentType = wireContentType,
             urlStr = urlStr,
             bodyStr = bodyStr,
             ts = ts
@@ -67,7 +70,7 @@ class MovieBoxAuthInterceptor : Interceptor {
         val builder = request.newBuilder()
             .header("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
             .header("Accept", "application/json")
-            .header("Content-Type", "application/json")
+            .header("Content-Type", wireContentType)
             .header("Connection", "keep-alive")
             .header("X-Client-Info", MovieBoxSigner.CLIENT_INFO_JSON)
             .header("X-Client-Status", "0")

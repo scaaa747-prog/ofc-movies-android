@@ -145,8 +145,11 @@ data class MovieDetailData(
     @SerializedName("imdbRatingValue", alternate = ["rating"])
     val rating: String? = null,
 
-    @SerializedName("durationSeconds", alternate = ["duration"])
-    val durationSeconds: Long? = null,
+    @SerializedName("durationSeconds")
+    val rawDurationSeconds: Any? = null,
+
+    @SerializedName("duration")
+    val rawDuration: Any? = null,
 
     @SerializedName("releaseDate")
     val releaseDate: String? = null,
@@ -161,13 +164,27 @@ data class MovieDetailData(
     val cast: List<CastItem> = emptyList(),
 
     @SerializedName("subjectType")
-    val subjectType: Int = 0
+    val rawSubjectType: Any? = null
 ) {
     val coverUrl: String
         get() = when (cover) {
             is String -> cover
             is Map<*, *> -> (cover["url"] as? String) ?: ""
             else -> ""
+        }
+
+    val durationSeconds: Long
+        get() = when (val d = rawDurationSeconds ?: rawDuration) {
+            is Number -> d.toLong()
+            is String -> d.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+
+    val subjectType: Int
+        get() = when (rawSubjectType) {
+            is Number -> rawSubjectType.toInt()
+            is String -> rawSubjectType.toIntOrNull() ?: 0
+            else -> 0
         }
 }
 
@@ -215,21 +232,54 @@ data class PlayInfoStream(
     @SerializedName("url")
     val url: String? = null,
 
+    @SerializedName("dashUrl")
+    val dashUrl: String? = null,
+
+    @SerializedName("resourceLink")
+    val resourceLink: String? = null,
+
     @SerializedName("resolutions")
     val resolutions: String? = null,
 
+    @SerializedName("resolution")
+    val rawResolution: Any? = null,
+
+    @SerializedName("title")
+    val title: String? = null,
+
     @SerializedName("size")
-    val size: Long = 0L,
+    val rawSize: Any? = null,
 
     @SerializedName("duration")
-    val duration: Long = 0L,
+    val rawDuration: Any? = null,
 
     @SerializedName("codecName")
     val codecName: String? = null,
 
     @SerializedName("signCookie")
     val signCookie: String? = null
-)
+) {
+    val size: Long
+        get() = when (rawSize) {
+            is Number -> rawSize.toLong()
+            is String -> rawSize.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+
+    val duration: Long
+        get() = when (rawDuration) {
+            is Number -> rawDuration.toLong()
+            is String -> rawDuration.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+
+    val resolution: Int
+        get() = when (rawResolution) {
+            is Number -> rawResolution.toInt()
+            is String -> rawResolution.toIntOrNull() ?: 0
+            else -> resolutions?.split(",")?.firstOrNull()?.trim()?.toIntOrNull() ?: 0
+        }
+}
 
 data class SeasonInfoResponse(
     @SerializedName("code")
@@ -251,14 +301,28 @@ data class SeasonInfoData(
 
 data class SeasonItem(
     @SerializedName("se")
-    val seasonNumber: Int = 1,
+    val rawSeasonNumber: Any? = null,
 
     @SerializedName("maxEp")
-    val maxEpisode: Int = 1,
+    val rawMaxEpisode: Any? = null,
 
     @SerializedName("allEp")
     val allEp: String? = null
-)
+) {
+    val seasonNumber: Int
+        get() = when (rawSeasonNumber) {
+            is Number -> rawSeasonNumber.toInt()
+            is String -> rawSeasonNumber.toIntOrNull() ?: 1
+            else -> 1
+        }
+
+    val maxEpisode: Int
+        get() = when (rawMaxEpisode) {
+            is Number -> rawMaxEpisode.toInt()
+            is String -> rawMaxEpisode.toIntOrNull() ?: 1
+            else -> 1
+        }
+}
 
 data class SearchRequestBody(
     @SerializedName("keyword")
@@ -314,23 +378,46 @@ data class ResourcesData(
 
 data class StreamResource(
     @SerializedName("resolution")
-    val resolution: Int = 0,
+    val rawResolution: Any? = null,
 
     @SerializedName("codecName")
     val codecName: String? = null,
 
     @SerializedName("size")
-    val size: Long = 0L,
+    val rawSize: Any? = null,
 
     @SerializedName("resourceLink")
     val resourceLink: String? = null,
+
+    @SerializedName("dashUrl")
+    val dashUrl: String? = null,
+
+    @SerializedName("signCookie")
+    val signCookie: String? = null,
+
+    @SerializedName("title")
+    val title: String? = null,
 
     @SerializedName("se")
     val se: Int = 0,
 
     @SerializedName("ep")
     val ep: Int = 0
-)
+) {
+    val resolution: Int
+        get() = when (rawResolution) {
+            is Number -> rawResolution.toInt()
+            is String -> rawResolution.toIntOrNull() ?: 0
+            else -> 0
+        }
+
+    val size: Long
+        get() = when (rawSize) {
+            is Number -> rawSize.toLong()
+            is String -> rawSize.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+}
 
 data class PlayableStream(
     val title: String,

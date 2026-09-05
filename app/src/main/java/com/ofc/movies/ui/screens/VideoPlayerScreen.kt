@@ -147,6 +147,17 @@ fun VideoPlayerScreen(
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val currentIndex = streams.indexOf(selectedStream)
+                if (currentIndex in 0 until streams.size - 1) {
+                    val nextStream = streams[currentIndex + 1]
+                    selectedStream = nextStream
+                    playStream(exoPlayer, nextStream)
+                } else {
+                    streamError = "Playback error: ${error.localizedMessage ?: "Failed to play stream"}"
+                }
+            }
         }
         exoPlayer.addListener(listener)
         onDispose {
@@ -476,9 +487,15 @@ fun VideoPlayerScreen(
 
 @OptIn(UnstableApi::class)
 private fun playStream(player: ExoPlayer, stream: PlayableStream) {
+    player.stop()
+    player.clearMediaItems()
+
     if (stream.isDash && !stream.signCookie.isNullOrEmpty()) {
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("ExoPlayerLib/2.19.1")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(20000)
             .setDefaultRequestProperties(
                 mapOf(
                     "Cookie" to stream.signCookie,
@@ -494,6 +511,12 @@ private fun playStream(player: ExoPlayer, stream: PlayableStream) {
         val mediaSource = DashMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
         player.setMediaSource(mediaSource)
     } else {
+        val dataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("ExoPlayerLib/2.19.1")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(20000)
+
         val mediaItem = MediaItem.fromUri(stream.streamUrl)
         player.setMediaItem(mediaItem)
     }
