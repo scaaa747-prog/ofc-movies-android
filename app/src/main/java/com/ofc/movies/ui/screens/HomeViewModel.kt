@@ -1,8 +1,10 @@
 package com.ofc.movies.ui.screens
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ofc.movies.data.api.MovieRepository
+import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.ContinueWatchingItem
 import com.ofc.movies.data.model.HomeCategoryRow
 import com.ofc.movies.data.model.MovieItem
@@ -23,8 +25,11 @@ sealed interface HomeUiState {
 }
 
 class HomeViewModel(
-    private val repository: MovieRepository = MovieRepository()
-) : ViewModel() {
+    application: Application
+) : AndroidViewModel(application) {
+
+    private val storageManager = StorageManager.getInstance(application)
+    private val repository = MovieRepository(storageManager = storageManager)
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -34,6 +39,14 @@ class HomeViewModel(
 
     init {
         loadHomeContent()
+    }
+
+    fun refreshContinueWatching() {
+        val current = _uiState.value
+        if (current is HomeUiState.Success) {
+            val cw = storageManager.getContinueWatching()
+            _uiState.value = current.copy(continueWatching = cw)
+        }
     }
 
     fun loadHomeContent() {
@@ -46,19 +59,8 @@ class HomeViewModel(
                 val heroMovies = allMovies.take(5)
                 val top10 = allMovies.sortedByDescending { it.rating?.toDoubleOrNull() ?: 0.0 }.take(10)
 
-                // Demo continue watching item
-                val continueWatching = if (allMovies.isNotEmpty()) {
-                    listOf(
-                        ContinueWatchingItem(
-                            id = allMovies.first().id,
-                            title = allMovies.first().title,
-                            coverUrl = allMovies.first().coverUrl,
-                            progress = 0.65f,
-                            durationMinutes = 112,
-                            lastWatchedEpisode = null
-                        )
-                    )
-                } else emptyList()
+                // Real Continue Watching from persistent storage
+                val continueWatching = storageManager.getContinueWatching()
 
                 _uiState.value = HomeUiState.Success(
                     heroMovies = heroMovies,

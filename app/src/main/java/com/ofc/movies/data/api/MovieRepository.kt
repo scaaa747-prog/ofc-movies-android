@@ -1,12 +1,22 @@
 package com.ofc.movies.data.api
 
+import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class MovieRepository(
-    private val api: MovieApiService = ApiClient.service
+    private val api: MovieApiService = ApiClient.service,
+    private val storageManager: StorageManager? = null
 ) {
+
+    private fun isAllowed(item: MovieItem): Boolean {
+        if (item.isExplicitAdult) return false
+        if (storageManager?.isFamilyModeEnabled() == true) {
+            return item.isFamilySafe
+        }
+        return true
+    }
 
     suspend fun getHomeSections(): Result<List<HomeCategoryRow>> = withContext(Dispatchers.IO) {
         try {
@@ -14,7 +24,7 @@ class MovieRepository(
             val rawItems = response.data?.items ?: emptyList()
 
             val filteredSections = mutableListOf<HomeCategoryRow>()
-            val bannedKeywords = listOf("short tv", "shorts", "18+", "adult", "erotic", "fight zone", "banner", "update")
+            val bannedKeywords = listOf("short tv", "shorts", "fight zone", "banner", "update")
 
             for (sec in rawItems) {
                 val title = sec.title.trim()
@@ -22,7 +32,7 @@ class MovieRepository(
 
                 if (bannedKeywords.any { titleLower.contains(it) }) continue
 
-                val safeSubjects = sec.subjects.filter { it.isFamilySafe }
+                val safeSubjects = sec.subjects.filter { isAllowed(it) }
                 if (safeSubjects.isNotEmpty()) {
                     filteredSections.add(
                         HomeCategoryRow(
@@ -63,7 +73,7 @@ class MovieRepository(
     suspend fun getRecommendations(subjectId: String): Result<List<MovieItem>> = withContext(Dispatchers.IO) {
         try {
             val response = api.getRecommendations(RelatedRecRequestBody(subjectId))
-            val items = response.data?.items?.filter { it.isFamilySafe } ?: emptyList()
+            val items = response.data?.items?.filter { isAllowed(it) } ?: emptyList()
             Result.success(items)
         } catch (e: Exception) {
             Result.failure(e)
@@ -80,7 +90,7 @@ class MovieRepository(
                     subjectType = 0
                 )
             )
-            val items = response.data?.items?.filter { it.isFamilySafe } ?: emptyList()
+            val items = response.data?.items?.filter { isAllowed(it) } ?: emptyList()
             Result.success(items)
         } catch (e: Exception) {
             Result.failure(e)

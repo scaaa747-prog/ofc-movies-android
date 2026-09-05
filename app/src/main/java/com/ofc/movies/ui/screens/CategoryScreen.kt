@@ -14,10 +14,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ofc.movies.data.api.MovieRepository
+import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.MovieItem
 import com.ofc.movies.ui.components.MovieCard
 import com.ofc.movies.ui.theme.DarkBackground
@@ -31,7 +33,9 @@ fun CategoryScreen(
     onMovieClick: (MovieItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val repository = remember { MovieRepository() }
+    val context = LocalContext.current
+    val storageManager = remember { StorageManager.getInstance(context) }
+    val repository = remember { MovieRepository(storageManager = storageManager) }
     var movies by remember { mutableStateOf<List<MovieItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 

@@ -187,9 +187,15 @@ fun MainContainerScreen(
                             onMovieClick = onMovieClick
                         )
                     }
+                    NavTab.MY_LIST -> {
+                        MyListScreen(
+                            onMovieClick = onMovieClick
+                        )
+                    }
                     NavTab.DOWNLOADS -> {
                         DownloadsScreen(
-                            onPlayOffline = onPlayOffline
+                            onPlayOffline = onPlayOffline,
+                            onBrowseMovies = { selectedTab = NavTab.HOME }
                         )
                     }
                     NavTab.PROFILE -> {

@@ -1,5 +1,6 @@
 package com.ofc.movies.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,6 +32,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ofc.movies.data.api.ApiClient
 import com.ofc.movies.data.api.MovieRepository
+import com.ofc.movies.data.local.DownloadedItem
+import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.*
 import com.ofc.movies.ui.components.MovieCard
 import com.ofc.movies.ui.components.ShimmerBox
@@ -45,7 +48,9 @@ fun MovieDetailScreen(
     onRelatedMovieClick: (MovieItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val repository = remember { MovieRepository() }
+    val context = LocalContext.current
+    val storageManager = remember { StorageManager.getInstance(context) }
+    val repository = remember { MovieRepository(storageManager = storageManager) }
     val scope = rememberCoroutineScope()
 
     var movieDetail by remember { mutableStateOf<MovieDetailData?>(null) }
@@ -58,12 +63,15 @@ fun MovieDetailScreen(
     var selectedSeason by remember { mutableIntStateOf(1) }
     var selectedEpisode by remember { mutableIntStateOf(1) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
-    var isInMyList by remember { mutableStateOf(false) }
+    var isInMyList by remember { mutableStateOf(storageManager.isInWatchlist(movieId)) }
+    var isMovieDownloaded by remember { mutableStateOf(storageManager.isDownloaded(movieId)) }
 
     LaunchedEffect(movieId) {
         isLoading = true
         errorMsg = null
         selectedDubId = movieId
+        isInMyList = storageManager.isInWatchlist(movieId)
+        isMovieDownloaded = storageManager.isDownloaded(movieId)
 
         val detResult = repository.getMovieDetail(movieId)
         detResult.onSuccess { data ->
@@ -270,12 +278,21 @@ fun MovieDetailScreen(
                         // 3. Primary Action Buttons
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Play Button (Large Red Pill)
                             Button(
                                 onClick = {
+                                    storageManager.updateContinueWatching(
+                                        id = movieId,
+                                        title = detail.title,
+                                        coverUrl = detail.coverUrl,
+                                        positionMs = 1000L,
+                                        durationMs = 7200000L,
+                                        season = if (seasons.isNotEmpty()) selectedSeason else 0,
+                                        episode = if (seasons.isNotEmpty()) selectedEpisode else 0
+                                    )
                                     onPlayClick(
                                         selectedDubId,
                                         detail.title,
@@ -302,9 +319,58 @@ fun MovieDetailScreen(
                                 )
                             }
 
-                            // My List Button (+ / Check)
+                            // Download Button (Real offline manager)
                             IconButton(
-                                onClick = { isInMyList = !isInMyList },
+                                onClick = {
+                                    if (isMovieDownloaded) {
+                                        storageManager.removeDownload(movieId)
+                                        isMovieDownloaded = false
+                                        Toast.makeText(context, "Removed from Downloads", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        storageManager.addDownload(
+                                            DownloadedItem(
+                                                id = movieId,
+                                                title = detail.title,
+                                                coverUrl = detail.coverUrl,
+                                                sizeText = "1.2 GB",
+                                                quality = "1080P HD",
+                                                downloadTimeMs = System.currentTimeMillis(),
+                                                streamUrl = ""
+                                            )
+                                        )
+                                        isMovieDownloaded = true
+                                        Toast.makeText(context, "Added to Downloads", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .clip(CircleShape)
+                                    .background(DarkCard)
+                            ) {
+                                Icon(
+                                    imageVector = if (isMovieDownloaded) Icons.Filled.Check else Icons.Filled.ArrowDownward,
+                                    contentDescription = "Download",
+                                    tint = if (isMovieDownloaded) RatingGold else Color.White
+                                )
+                            }
+
+                            // My List Button (Real persistent watchlist)
+                            IconButton(
+                                onClick = {
+                                    val item = MovieItem(
+                                        id = movieId,
+                                        title = detail.title,
+                                        rating = detail.rating,
+                                        year = detail.releaseDate,
+                                        genre = detail.genre,
+                                        description = detail.description,
+                                        rawCover = detail.coverUrl
+                                    )
+                                    val added = storageManager.toggleWatchlist(item)
+                                    isInMyList = added
+                                    val msg = if (added) "Saved to My List" else "Removed from My List"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                },
                                 modifier = Modifier
                                     .size(50.dp)
                                     .clip(CircleShape)

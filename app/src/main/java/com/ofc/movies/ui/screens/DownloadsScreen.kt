@@ -1,5 +1,7 @@
 package com.ofc.movies.ui.screens
 
+import android.os.Environment
+import android.os.StatFs
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,29 +18,41 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.ofc.movies.data.local.DownloadedItem
+import com.ofc.movies.data.local.StorageManager
+import com.ofc.movies.ui.components.DownloadNavIcon
 import com.ofc.movies.ui.theme.*
-
-data class DownloadedMovie(
-    val id: String,
-    val title: String,
-    val sizeText: String,
-    val quality: String,
-    val durationText: String
-)
 
 @Composable
 fun DownloadsScreen(
     onPlayOffline: (movieId: String, title: String) -> Unit,
+    onBrowseMovies: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val downloads = remember {
-        mutableStateListOf(
-            DownloadedMovie("7826893701690839800", "The Runner [Hindi]", "1.4 GB", "1080P", "1h 52m"),
-            DownloadedMovie("3330020475752907416", "Stranger Things S4E1", "980 MB", "720P", "1h 16m")
-        )
+    val context = LocalContext.current
+    val storageManager = remember { StorageManager.getInstance(context) }
+
+    var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
+
+    // Calculate real device storage via StatFs
+    val (freeSpaceText, totalSpaceText, usedRatio) = remember {
+        try {
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val available = stat.availableBlocksLong * stat.blockSizeLong
+            val total = stat.blockCountLong * stat.blockSizeLong
+            val used = total - available
+            val freeGb = available.toDouble() / (1024 * 1024 * 1024)
+            val totalGb = total.toDouble() / (1024 * 1024 * 1024)
+            val ratio = if (total > 0) (used.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0.5f
+            Triple("%.1f GB Free".format(freeGb), "%.1f GB Total".format(totalGb), ratio)
+        } catch (e: Exception) {
+            Triple("Available", "Device Storage", 0.3f)
+        }
     }
 
     Column(
@@ -57,13 +71,13 @@ fun DownloadsScreen(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
         )
 
-        // Storage Usage Card
+        // Real Device Storage Bar
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = DarkCard,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = 20.dp, vertical = 4.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
@@ -71,20 +85,19 @@ fun DownloadsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "Device Storage", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
-                    Text(text = "2.38 GB used", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(text = freeSpaceText, color = RatingGold, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Progress Bar
                 LinearProgressIndicator(
-                    progress = { 0.28f },
+                    progress = { usedRatio },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
                     color = PrimaryRed,
-                    trackColor = DarkSurfaceElevated,
+                    trackColor = DarkSurfaceElevated
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -93,37 +106,78 @@ fun DownloadsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "Free Space: 45.2 GB", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-                    Text(text = "Total: 64.0 GB", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Real System Storage", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(text = totalSpaceText, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (downloads.isEmpty()) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(DarkCard),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = DownloadNavIcon,
+                            contentDescription = "No Downloads",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
                     Text(
-                        text = "No Downloads Found",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = "No Downloads Yet",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = TextPrimary
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
-                        text = "Movies you download will appear here for offline viewing",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
+                        text = "Download movies and episodes to watch them offline anytime without internet connection.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 20.sp
                     )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = onBrowseMovies,
+                        shape = PillShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                        modifier = Modifier.height(46.dp)
+                    ) {
+                        Text(
+                            text = "Browse Movies",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 }
             }
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(downloads, key = { it.id }) { item ->
@@ -138,7 +192,6 @@ fun DownloadsScreen(
                                 .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Play Icon Circle
                             Box(
                                 modifier = Modifier
                                     .size(44.dp)
@@ -161,7 +214,8 @@ fun DownloadsScreen(
                                 Text(
                                     text = item.title,
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = TextPrimary
+                                    color = TextPrimary,
+                                    maxLines = 1
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,9 +237,11 @@ fun DownloadsScreen(
                                 }
                             }
 
-                            // Delete Action
                             IconButton(
-                                onClick = { downloads.remove(item) },
+                                onClick = {
+                                    storageManager.removeDownload(item.id)
+                                    downloads = storageManager.getDownloads()
+                                },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(

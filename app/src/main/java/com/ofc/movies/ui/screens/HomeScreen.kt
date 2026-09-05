@@ -43,6 +43,10 @@ fun HomeScreen(
     var selectedCategory by remember { mutableStateOf("All") }
     val categories = listOf("All", "Action", "Drama", "Sci-Fi", "Comedy", "Animation", "Thriller")
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshContinueWatching()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()

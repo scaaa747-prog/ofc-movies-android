@@ -38,6 +38,7 @@ import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.ofc.movies.data.api.MovieRepository
+import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.PlayableStream
 import com.ofc.movies.ui.theme.DarkBackground
 import com.ofc.movies.ui.theme.PillShape
@@ -57,7 +58,8 @@ fun VideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
-    val repository = remember { MovieRepository() }
+    val storageManager = remember { StorageManager.getInstance(context) }
+    val repository = remember { MovieRepository(storageManager = storageManager) }
 
     var streams by remember { mutableStateOf<List<PlayableStream>>(emptyList()) }
     var selectedStream by remember { mutableStateOf<PlayableStream?>(null) }
@@ -119,7 +121,15 @@ fun VideoPlayerScreen(
         result.onSuccess { sList ->
             streams = sList
             if (sList.isNotEmpty()) {
-                val stream = sList.first()
+                val preferred = storageManager.getDefaultQuality()
+                val stream = sList.firstOrNull { s ->
+                    when {
+                        preferred.contains("1080") -> s.resolution.contains("1080")
+                        preferred.contains("720") -> s.resolution.contains("720")
+                        preferred.contains("480") -> s.resolution.contains("480")
+                        else -> true
+                    }
+                } ?: sList.first()
                 selectedStream = stream
                 playStream(exoPlayer, stream)
             } else {
@@ -131,7 +141,7 @@ fun VideoPlayerScreen(
         isLoadingStreams = false
     }
 
-    // Clean up player on leave
+    // Clean up player on leave & save watch history
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -140,6 +150,19 @@ fun VideoPlayerScreen(
         }
         exoPlayer.addListener(listener)
         onDispose {
+            val pos = exoPlayer.currentPosition
+            val dur = exoPlayer.duration
+            if (dur > 0 && pos > 2000) {
+                storageManager.updateContinueWatching(
+                    id = movieId,
+                    title = title,
+                    coverUrl = "",
+                    positionMs = pos,
+                    durationMs = dur,
+                    season = season,
+                    episode = episode
+                )
+            }
             exoPlayer.removeListener(listener)
             exoPlayer.stop()
             exoPlayer.release()

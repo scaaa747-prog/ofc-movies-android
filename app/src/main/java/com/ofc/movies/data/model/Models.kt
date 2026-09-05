@@ -52,15 +52,25 @@ data class MovieItem(
     val displayYear: String
         get() = year?.take(4) ?: ""
 
+    val isExplicitAdult: Boolean
+        get() {
+            val c = (cornerText ?: "").lowercase()
+            val t = title.lowercase()
+            val g = (genre ?: "").lowercase()
+            if (t.contains("erotic") || t.contains("porn") || t.contains("xxx") || t.contains("hentai") || t.contains("jav")) return true
+            if (c.contains("erotic") || c.contains("porn") || c.contains("xxx") || c.contains("hentai")) return true
+            if (g.contains("erotic") || g.contains("porn") || g.contains("adult movie")) return true
+            return false
+        }
+
     val isFamilySafe: Boolean
         get() {
+            if (isExplicitAdult) return false
             if (restrictKid == 1) return false
             val cr = (contentRating ?: "").uppercase()
             if (cr in listOf("R", "NC-17", "18+", "TV-MA", "XXX")) return false
             val c = (cornerText ?: "").lowercase()
             if (c.contains("18+") || c.contains("adult")) return false
-            val t = title.lowercase()
-            if (t.contains("18+") || t.contains("erotic") || t.contains("porn") || t.contains("sex")) return false
             return true
         }
 
