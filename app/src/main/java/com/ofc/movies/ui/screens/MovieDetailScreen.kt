@@ -1,5 +1,9 @@
 package com.ofc.movies.ui.screens
 
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -31,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ofc.movies.data.api.ApiClient
+import com.ofc.movies.data.api.MovieBoxSigner
 import com.ofc.movies.data.api.MovieRepository
 import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
@@ -348,27 +353,73 @@ fun MovieDetailScreen(
                                 )
                             }
 
-                            // Download Button (Real offline manager)
+                            // Download Button (Real offline manager via Android DownloadManager)
                             IconButton(
                                 onClick = {
                                     if (isMovieDownloaded) {
+                                        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                                        val existing = storageManager.getDownloads().firstOrNull { it.id == movieId }
+                                        if (existing != null && existing.downloadId > 0L) {
+                                            try { dm?.remove(existing.downloadId) } catch (e: Exception) {}
+                                        }
                                         storageManager.removeDownload(movieId)
                                         isMovieDownloaded = false
                                         Toast.makeText(context, "Removed from Downloads", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        storageManager.addDownload(
-                                            DownloadedItem(
-                                                id = movieId,
-                                                title = detail.title,
-                                                coverUrl = detail.coverUrl,
-                                                sizeText = "1.2 GB",
-                                                quality = "1080P HD",
-                                                downloadTimeMs = System.currentTimeMillis(),
-                                                streamUrl = ""
-                                            )
-                                        )
-                                        isMovieDownloaded = true
-                                        Toast.makeText(context, "Added to Downloads", Toast.LENGTH_SHORT).show()
+                                        scope.launch {
+                                            Toast.makeText(context, "Preparing download...", Toast.LENGTH_SHORT).show()
+                                            val playSeason = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedSeason else 0
+                                            val playEpisode = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedEpisode else 0
+                                            val stream = repository.getDownloadStream(selectedDubId, playSeason, playEpisode)
+                                            if (stream != null && stream.streamUrl.isNotEmpty()) {
+                                                try {
+                                                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                                    val cleanTitle = detail.title.replace(Regex("[^a-zA-Z0-9.-]"), "_")
+                                                    val fileName = "${cleanTitle}_${stream.resolution}p.mp4"
+                                                    val req = DownloadManager.Request(Uri.parse(stream.streamUrl))
+                                                        .setTitle(detail.title)
+                                                        .setDescription("Downloading ${stream.title}")
+                                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                        .setAllowedOverMetered(true)
+                                                        .setAllowedOverRoaming(true)
+
+                                                    if (!stream.signCookie.isNullOrEmpty()) {
+                                                        req.addRequestHeader("Cookie", stream.signCookie)
+                                                        req.addRequestHeader("Referer", "https://www.movieboxpro.app/")
+                                                    }
+                                                    req.addRequestHeader("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
+
+                                                    try {
+                                                        req.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
+                                                    } catch (e: Exception) {
+                                                        try {
+                                                            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                                                        } catch (e2: Exception) {}
+                                                    }
+
+                                                    val downloadId = dm.enqueue(req)
+
+                                                    storageManager.addDownload(
+                                                        DownloadedItem(
+                                                            id = movieId,
+                                                            title = detail.title,
+                                                            coverUrl = detail.coverUrl,
+                                                            sizeText = if (stream.size > 0) "${stream.size / (1024 * 1024)} MB" else "${stream.resolution}P",
+                                                            quality = stream.title,
+                                                            downloadTimeMs = System.currentTimeMillis(),
+                                                            streamUrl = stream.streamUrl,
+                                                            downloadId = downloadId
+                                                        )
+                                                    )
+                                                    isMovieDownloaded = true
+                                                    Toast.makeText(context, "Download started! Check notifications", Toast.LENGTH_LONG).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Download failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "No stream found to download", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
                                 },
                                 modifier = Modifier

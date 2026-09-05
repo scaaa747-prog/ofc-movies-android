@@ -1,5 +1,7 @@
 package com.ofc.movies.ui.screens
 
+import android.app.DownloadManager
+import android.content.Context
 import android.os.Environment
 import android.os.StatFs
 import androidx.compose.foundation.background
@@ -27,6 +29,7 @@ import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.ui.components.DownloadNavIcon
 import com.ofc.movies.ui.theme.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun DownloadsScreen(
@@ -38,6 +41,48 @@ fun DownloadsScreen(
     val storageManager = remember { StorageManager.getInstance(context) }
 
     var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
+    var downloadStatuses by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+
+    // Periodically refresh real download statuses
+    LaunchedEffect(downloads) {
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        while (true) {
+            if (dm != null && downloads.isNotEmpty()) {
+                val map = mutableMapOf<Long, String>()
+                downloads.forEach { item ->
+                    if (item.downloadId > 0L) {
+                        try {
+                            val cursor = dm.query(DownloadManager.Query().setFilterById(item.downloadId))
+                            if (cursor != null && cursor.moveToFirst()) {
+                                val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                                val status = if (statusIdx != -1) cursor.getInt(statusIdx) else -1
+                                val bytesDownloadedIdx = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                                val bytesTotalIdx = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                                val downloaded = if (bytesDownloadedIdx != -1) cursor.getLong(bytesDownloadedIdx) else 0L
+                                val total = if (bytesTotalIdx != -1) cursor.getLong(bytesTotalIdx) else 0L
+
+                                val statusStr = when (status) {
+                                    DownloadManager.STATUS_RUNNING -> {
+                                        if (total > 0) "${(downloaded * 100 / total)}%" else "Downloading"
+                                    }
+                                    DownloadManager.STATUS_PENDING -> "Queued"
+                                    DownloadManager.STATUS_SUCCESSFUL -> "Ready"
+                                    DownloadManager.STATUS_FAILED -> "Failed"
+                                    else -> "Ready"
+                                }
+                                map[item.downloadId] = statusStr
+                                cursor.close()
+                            }
+                        } catch (e: Exception) {
+                            // ignore
+                        }
+                    }
+                }
+                downloadStatuses = map
+            }
+            delay(2000)
+        }
+    }
 
     // Calculate real device storage via StatFs
     val (freeSpaceText, totalSpaceText, usedRatio) = remember {
@@ -218,7 +263,8 @@ fun DownloadsScreen(
                                     maxLines = 1
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val status = downloadStatuses[item.downloadId] ?: "Ready"
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = item.quality,
                                         style = MaterialTheme.typography.labelSmall,
@@ -234,11 +280,29 @@ fun DownloadsScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = TextSecondary
                                     )
+                                    Text(
+                                        text = "•",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextSecondary
+                                    )
+                                    Text(
+                                        text = status,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = if (status.contains("%") || status == "Queued") PrimaryRed else Color(0xFF4CAF50)
+                                    )
                                 }
                             }
 
                             IconButton(
                                 onClick = {
+                                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                                    if (item.downloadId > 0L) {
+                                        try {
+                                            dm?.remove(item.downloadId)
+                                        } catch (e: Exception) {
+                                            // ignore
+                                        }
+                                    }
                                     storageManager.removeDownload(item.id)
                                     downloads = storageManager.getDownloads()
                                 },

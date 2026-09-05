@@ -128,30 +128,45 @@ class MovieRepository(
                     val codec = s.codecName ?: "hevc"
                     val size = s.size
                     val duration = s.duration
-                    val rInt = if (s.resolution > 0) s.resolution else 1080
+
+                    val resList = (s.resolutions ?: "1080,720,480")
+                        .split(",")
+                        .mapNotNull { it.trim().toIntOrNull() }
+                        .filter { it > 0 }
+                        .ifEmpty { listOf(if (s.resolution > 0) s.resolution else 1080) }
 
                     if (cookie.contains("CloudFront-Policy=")) {
                         val baseDashUrl = MovieBoxSigner.extractBaseDashUrl(cookie)
                         val mpdUrl = s.dashUrl ?: if (baseDashUrl != null) "$baseDashUrl/index.mpd" else null
                         if (mpdUrl != null) {
-                            playable.add(
-                                PlayableStream(
-                                    title = "${rInt}P HD",
-                                    resolution = rInt,
-                                    codecName = codec,
-                                    size = size,
-                                    duration = duration,
-                                    streamUrl = mpdUrl,
-                                    isDash = true,
-                                    signCookie = cookie,
-                                    season = se,
-                                    episode = ep
+                            for (rInt in resList) {
+                                val scaledSize = when {
+                                    rInt <= 480 -> (size * 0.35).toLong()
+                                    rInt <= 720 -> (size * 0.60).toLong()
+                                    else -> size
+                                }
+                                playable.add(
+                                    PlayableStream(
+                                        title = "${rInt}P HD",
+                                        resolution = rInt,
+                                        codecName = codec,
+                                        size = scaledSize,
+                                        duration = duration,
+                                        streamUrl = mpdUrl,
+                                        isDash = true,
+                                        signCookie = cookie,
+                                        season = se,
+                                        episode = ep
+                                    )
                                 )
-                            )
+                            }
                         }
-                    } else {
-                        val url = s.url ?: s.resourceLink ?: ""
-                        if (url.isNotEmpty() && !url.contains("9a0461bc39da389663bf3dbb17091d3f")) {
+                    }
+
+                    // Direct MP4 stream if available
+                    val url = s.url ?: s.resourceLink ?: ""
+                    if (url.isNotEmpty() && !url.contains("9a0461bc39da389663bf3dbb17091d3f") && !url.contains("/other/2026/09/01/")) {
+                        for (rInt in resList) {
                             playable.add(
                                 PlayableStream(
                                     title = "${rInt}P",
@@ -161,6 +176,7 @@ class MovieRepository(
                                     duration = duration,
                                     streamUrl = url,
                                     isDash = false,
+                                    signCookie = if (cookie.isNotEmpty()) cookie else null,
                                     season = se,
                                     episode = ep
                                 )
@@ -207,7 +223,8 @@ class MovieRepository(
                                     )
                                 )
                             }
-                        } else if (link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f") && !link.contains("/other/2026/09/01/")) {
+                        }
+                        if (link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f") && !link.contains("/other/2026/09/01/")) {
                             playable.add(
                                 PlayableStream(
                                     title = "${res}P",
@@ -217,6 +234,7 @@ class MovieRepository(
                                     duration = 0L,
                                     streamUrl = link,
                                     isDash = false,
+                                    signCookie = if (cookie.isNotEmpty()) cookie else null,
                                     season = se,
                                     episode = ep
                                 )
@@ -225,10 +243,44 @@ class MovieRepository(
                     }
                 }
 
-                val distinct = playable.distinctBy { "${it.resolution}_${it.streamUrl}" }
+                val distinct = playable.distinctBy { "${it.resolution}_${it.isDash}_${it.streamUrl}" }
                 Result.success(distinct.sortedByDescending { it.resolution })
             } catch (e: Exception) {
                 Result.failure(e)
             }
+        }
+
+    suspend fun getDownloadStream(subjectId: String, se: Int = 0, ep: Int = 0): PlayableStream? =
+        withContext(Dispatchers.IO) {
+            try {
+                // 1. Try resources endpoint for direct downloadable link
+                val res = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
+                val list = res.data?.list ?: emptyList()
+                val direct = list.firstOrNull { r ->
+                    val link = r.resourceLink ?: ""
+                    link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f") && !link.contains("/other/2026/09/01/")
+                }
+                if (direct != null && !direct.resourceLink.isNullOrEmpty()) {
+                    val resInt = if (direct.resolution > 0) direct.resolution else 720
+                    return@withContext PlayableStream(
+                        title = "${resInt}P",
+                        resolution = resInt,
+                        codecName = direct.codecName ?: "h264",
+                        size = direct.size,
+                        duration = 0L,
+                        streamUrl = direct.resourceLink,
+                        isDash = false,
+                        signCookie = direct.signCookie,
+                        season = se,
+                        episode = ep
+                    )
+                }
+            } catch (e: Exception) {
+                // Ignore fallback
+            }
+
+            // 2. Otherwise fallback to best playable streams (prefer direct MP4 if available)
+            val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
+            return@withContext streams.firstOrNull { !it.isDash } ?: streams.firstOrNull()
         }
 }

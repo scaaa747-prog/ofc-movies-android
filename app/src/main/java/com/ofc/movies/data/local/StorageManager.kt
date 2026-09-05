@@ -14,7 +14,8 @@ data class DownloadedItem(
     val sizeText: String,
     val quality: String,
     val downloadTimeMs: Long,
-    val streamUrl: String
+    val streamUrl: String,
+    val downloadId: Long = -1L
 )
 
 class StorageManager private constructor(context: Context) {
