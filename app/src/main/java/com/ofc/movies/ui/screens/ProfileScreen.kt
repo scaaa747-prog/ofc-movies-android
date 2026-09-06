@@ -127,7 +127,7 @@ fun ProfileScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "MovieBox Direct Session • Unlimited Access",
+                        text = "VIP Member • Unlimited Access",
                         style = MaterialTheme.typography.bodySmall,
                         color = RatingGold
                     )
@@ -369,7 +369,7 @@ fun ProfileScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "App Version", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                    Text(text = "1.0.0 (Direct MovieBox API)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(text = "1.0.0 (Latest Release)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -378,8 +378,8 @@ fun ProfileScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "Binary Footprint", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                    Text(text = "5.02 MB (< 10 MB Verified)", color = RatingGold, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                    Text(text = "App Size", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "6.18 MB (Ultra Lightweight)", color = RatingGold, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -388,18 +388,8 @@ fun ProfileScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "Direct Gateway", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                    Text(text = "api6.aoneroom.com", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Security Protocol", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                    Text(text = "HMAC-MD5 Request Signing", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Service Status", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "Online & Operational", color = Color(0xFF4CAF50), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
                 }
             }
         }

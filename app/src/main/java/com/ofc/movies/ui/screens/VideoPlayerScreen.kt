@@ -48,6 +48,7 @@ import com.ofc.movies.data.api.MovieRepository
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.DubItem
 import com.ofc.movies.data.model.PlayableStream
+import com.ofc.movies.data.model.formatUserFriendlyError
 import com.ofc.movies.ui.theme.DarkBackground
 import com.ofc.movies.ui.theme.DarkCard
 import com.ofc.movies.ui.theme.PillShape
@@ -245,7 +246,7 @@ fun VideoPlayerScreen(
                     streamError = "No playable stream available for this title."
                 }
             }.onFailure { err ->
-                streamError = err.localizedMessage ?: "Failed to resolve video stream"
+                streamError = formatUserFriendlyError(err, "Failed to resolve video stream. Please check your internet.")
             }
             isLoadingStreams = false
         }
@@ -272,7 +273,7 @@ fun VideoPlayerScreen(
                     selectedStream = nextStream
                     playStream(exoPlayer, nextStream)
                 } else {
-                    streamError = "Playback error: ${error.localizedMessage ?: "Failed to play stream"}"
+                    streamError = formatUserFriendlyError(error, "Playback error: Unable to play video. Please check your internet.")
                 }
             }
         }

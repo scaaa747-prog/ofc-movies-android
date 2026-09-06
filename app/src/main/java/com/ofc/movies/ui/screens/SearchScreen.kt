@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.ofc.movies.data.api.MovieRepository
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.MovieItem
+import com.ofc.movies.data.model.formatUserFriendlyError
 import com.ofc.movies.ui.components.MovieCard
 import com.ofc.movies.ui.theme.*
 import kotlinx.coroutines.delay
@@ -67,7 +68,7 @@ fun SearchScreen(
         res.onSuccess { items ->
             searchResults = items
         }.onFailure { err ->
-            searchError = err.localizedMessage ?: "Search failed"
+            searchError = formatUserFriendlyError(err, "Search failed. Please check your internet.")
         }
         isLoading = false
     }

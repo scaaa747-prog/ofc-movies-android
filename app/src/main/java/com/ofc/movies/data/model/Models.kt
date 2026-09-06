@@ -669,3 +669,27 @@ fun formatDownloadSize(sizeBytes: Long, resolution: Int): String {
         }
     }
 }
+
+fun formatUserFriendlyError(error: Throwable?, fallback: String = "Something went wrong"): String {
+    if (error == null) return fallback
+    val msg = error.message ?: error.localizedMessage ?: ""
+    val lower = msg.lowercase()
+    return when {
+        error is java.net.UnknownHostException ||
+                lower.contains("unable to resolve host") ||
+                lower.contains("no address associated") -> {
+            "Internet connection error. Please check your connection and try again."
+        }
+        error is java.net.SocketTimeoutException ||
+                lower.contains("timeout") ||
+                lower.contains("timed out") -> {
+            "Connection timed out. Please check your internet."
+        }
+        error is java.net.ConnectException ||
+                lower.contains("failed to connect") -> {
+            "Unable to connect to server. Please check your internet."
+        }
+        msg.isNotBlank() && !lower.contains("exception") && !lower.contains("host") -> msg
+        else -> "Internet connection error. Please try again."
+    }
+}

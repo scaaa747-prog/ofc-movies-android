@@ -8,6 +8,7 @@ import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.ContinueWatchingItem
 import com.ofc.movies.data.model.HomeCategoryRow
 import com.ofc.movies.data.model.MovieItem
+import com.ofc.movies.data.model.formatUserFriendlyError
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,7 +70,7 @@ class HomeViewModel(
                     rows = sections
                 )
             }.onFailure { err ->
-                _uiState.value = HomeUiState.Error(err.localizedMessage ?: "Failed to load content")
+                _uiState.value = HomeUiState.Error(formatUserFriendlyError(err, "Failed to load content"))
             }
 
             _isRefreshing.value = false

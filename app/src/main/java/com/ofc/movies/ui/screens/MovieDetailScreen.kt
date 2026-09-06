@@ -133,7 +133,7 @@ fun MovieDetailScreen(
                 recommendations = rList
             }
         }.onFailure { err ->
-            errorMsg = err.localizedMessage ?: "Failed to load movie details"
+            errorMsg = formatUserFriendlyError(err, "Failed to load movie details")
         }
         isLoading = false
     }
@@ -178,7 +178,7 @@ fun MovieDetailScreen(
                                     val recResult = repository.getRecommendations(movieId)
                                     recResult.onSuccess { recommendations = it }
                                 }.onFailure { err ->
-                                    errorMsg = err.localizedMessage ?: "Failed to load movie details"
+                                    errorMsg = formatUserFriendlyError(err, "Failed to load movie details")
                                 }
                                 isLoading = false
                             }
