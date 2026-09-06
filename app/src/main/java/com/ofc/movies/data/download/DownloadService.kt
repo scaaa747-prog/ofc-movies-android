@@ -158,7 +158,7 @@ class DownloadService : Service() {
                 createdUri = Uri.fromFile(file)
             }
 
-            if (outputStream == null) return false
+            val out = outputStream ?: return false
 
             val buffer = ByteArray(64 * 1024)
             var bytesRead: Int
@@ -168,7 +168,7 @@ class DownloadService : Service() {
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                 if (downloadManager.isCancelled(task.id)) {
-                    outputStream.close()
+                    out.close()
                     outputStream = null
                     if (createdUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         contentResolver.delete(createdUri, null, null)
@@ -176,7 +176,7 @@ class DownloadService : Service() {
                     return false
                 }
 
-                outputStream.write(buffer, 0, bytesRead)
+                out.write(buffer, 0, bytesRead)
                 totalBytesDownloaded += bytesRead
 
                 val now = System.currentTimeMillis()
@@ -197,8 +197,8 @@ class DownloadService : Service() {
                 }
             }
 
-            outputStream.flush()
-            outputStream.close()
+            out.flush()
+            out.close()
             outputStream = null
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && createdUri != null) {
