@@ -203,7 +203,7 @@ fun VideoPlayerScreen(
                         season = season,
                         episode = episode
                     )
-                    playStream(exoPlayer, stream)
+                    playStream(context, exoPlayer, stream)
                     isLoadingStreams = false
                     localPlaySuccess = true
                 } catch (e: Exception) {
@@ -252,7 +252,7 @@ fun VideoPlayerScreen(
                         }
                     } ?: sList.first()
                     selectedStream = stream
-                    playStream(exoPlayer, stream)
+                    playStream(context, exoPlayer, stream)
                 } else {
                     streamError = "No playable stream available for this title."
                 }
@@ -282,7 +282,7 @@ fun VideoPlayerScreen(
                 val nextStream = streams.firstOrNull { it != selectedStream && it.streamUrl != selectedStream?.streamUrl }
                 if (nextStream != null) {
                     selectedStream = nextStream
-                    playStream(exoPlayer, nextStream)
+                    playStream(context, exoPlayer, nextStream)
                 } else {
                     streamError = formatUserFriendlyError(error, "Playback error: Unable to play video. Please check your internet.")
                 }
@@ -640,10 +640,10 @@ fun VideoPlayerScreen(
                                             )
                                             val currentUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
                                             if (currentUri != st.streamUrl) {
-                                                playStream(exoPlayer, st, currentPos)
+                                                playStream(context, exoPlayer, st, currentPos)
                                             }
                                         } else {
-                                            playStream(exoPlayer, st, currentPos)
+                                            playStream(context, exoPlayer, st, currentPos)
                                         }
                                     }
                                     .padding(vertical = 12.dp),
@@ -702,7 +702,7 @@ fun VideoPlayerScreen(
                                                         ?: sList.firstOrNull()
                                                     if (st != null) {
                                                         selectedStream = st
-                                                        playStream(exoPlayer, st, resumePos)
+                                                        playStream(context, exoPlayer, st, resumePos)
                                                     }
                                                 }
                                                 isLoadingStreams = false
@@ -743,12 +743,12 @@ fun VideoPlayerScreen(
 }
 
 @OptIn(UnstableApi::class)
-private fun playStream(player: ExoPlayer, stream: PlayableStream, seekToMs: Long = 0L) {
+private fun playStream(context: Context, player: ExoPlayer, stream: PlayableStream, seekToMs: Long = 0L) {
     player.stop()
     player.clearMediaItems()
 
     val dataSourceFactory = com.ofc.movies.data.download.DownloadCacheManager.createCacheDataSourceFactory(
-        player.applicationContext,
+        context.applicationContext,
         stream.signCookie
     )
 
