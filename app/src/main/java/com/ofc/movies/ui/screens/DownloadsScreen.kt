@@ -56,21 +56,6 @@ fun DownloadsScreen(
         downloads = storageManager.getDownloads()
     }
 
-    // Auto-clean any corrupt 10-sec promo downloads
-    LaunchedEffect(Unit) {
-        val current = storageManager.getDownloads()
-        val fake = current.filter { MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
-        if (fake.isNotEmpty()) {
-            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-            fake.forEach { item ->
-                if (item.downloadId > 0L) {
-                    try { dm?.remove(item.downloadId) } catch (e: Exception) {}
-                }
-                storageManager.removeDownload(item.id)
-            }
-            downloads = storageManager.getDownloads()
-        }
-    }
 
     // Periodically refresh real download statuses
     LaunchedEffect(Unit) {

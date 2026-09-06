@@ -273,66 +273,50 @@ class MovieRepository(
     ): List<DownloadQualityOption> = withContext(Dispatchers.IO) {
         val options = mutableListOf<DownloadQualityOption>()
 
-        // 1. First priority: Real direct MP4 files from resourceDetectors
-        val detail = preloadedDetail ?: getMovieDetail(subjectId).getOrNull()
-        val detectors = detail?.resourceDetectors ?: emptyList()
-        for (rd in detectors) {
-            val list = rd.resolutionList
-            for (rl in list) {
-                val matchesEpisode = if (detail?.subjectType == 2) {
-                    (rl.se == se || (se == 0 && rl.se <= 1)) && (rl.ep == ep || rl.episode == ep)
-                } else {
-                    true
-                }
-                if (matchesEpisode && !rl.resourceLink.isNullOrBlank()) {
-                    val res = rl.resolution
-                    val size = rl.size
+        // 1. Direct playable MP4 streams from play-info (excluding DASH manifests)
+        try {
+            val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
+            for (s in streams) {
+                if (!s.isDash && !s.streamUrl.contains(".mpd") && s.streamUrl.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(s.streamUrl)) {
+                    val res = s.resolution
                     val title = when {
                         res >= 1080 -> "1080p Full HD"
                         res >= 720 -> "720p HD"
                         res >= 480 -> "480p SD"
                         res > 0 -> "${res}p"
-                        else -> "Standard Quality"
+                        else -> s.title
                     }
                     options.add(
                         DownloadQualityOption(
                             title = title,
                             resolution = res,
-                            sizeBytes = size,
-                            sizeFormatted = formatDownloadSize(size, res),
-                            streamUrl = rl.resourceLink,
-                            codec = rl.codecName ?: "h264",
+                            sizeBytes = s.size,
+                            sizeFormatted = formatDownloadSize(s.size, res),
+                            streamUrl = s.streamUrl,
+                            signCookie = s.signCookie,
+                            codec = s.codecName,
                             season = se,
                             episode = ep
                         )
                     )
                 }
             }
-            if (options.isEmpty() && !rd.downloadUrl.isNullOrBlank()) {
-                val sBytes = rd.totalSize?.toLongOrNull() ?: 0L
-                options.add(
-                    DownloadQualityOption(
-                        title = "720p HD",
-                        resolution = 720,
-                        sizeBytes = sBytes,
-                        sizeFormatted = formatDownloadSize(sBytes, 720),
-                        streamUrl = rd.downloadUrl,
-                        codec = "h264",
-                        season = se,
-                        episode = ep
-                    )
-                )
-            }
+        } catch (e: Exception) {
+            android.util.Log.e("MovieRepository", "Failed to fetch playable streams for download", e)
         }
 
-        // 2. Secondary fallback: resources API endpoint
+        // 2. Direct signed download resources from resources API (has signCookie for CloudFront auth)
         if (options.isEmpty()) {
             try {
-                val resResp = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
-                val list = resResp.data?.list ?: emptyList()
+                var resResp = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
+                var list = resResp.data?.list ?: emptyList()
+                if (list.isEmpty() && (se > 0 || ep > 0)) {
+                    resResp = api.getResources(subjectId = subjectId, se = 0, ep = 0, page = 1)
+                    list = resResp.data?.list ?: emptyList()
+                }
                 for (r in list) {
                     val link = r.resourceLink ?: ""
-                    if (link.isNotEmpty()) {
+                    if (link.isNotEmpty() && !link.contains(".mpd") && !MovieBoxSigner.isFakeClipUrl(link)) {
                         val res = if (r.resolution > 0) r.resolution else 720
                         val size = r.size
                         val title = when {
@@ -356,41 +340,70 @@ class MovieRepository(
                         )
                     }
                 }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.e("MovieRepository", "Failed to fetch resources for download", e)
+            }
         }
 
-        // 3. Third fallback: playable streams
+        // 3. Fallback: resourceDetectors from movie detail
         if (options.isEmpty()) {
-            try {
-                val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
-                for (s in streams) {
-                    if (s.streamUrl.isNotEmpty()) {
-                        val res = s.resolution
+            val detail = preloadedDetail ?: getMovieDetail(subjectId).getOrNull()
+            val detectors = detail?.resourceDetectors ?: emptyList()
+            for (rd in detectors) {
+                val list = rd.resolutionList
+                for (rl in list) {
+                    val matchesEpisode = if (detail?.subjectType == 2) {
+                        (rl.se == se || (se == 0 && rl.se <= 1)) && (rl.ep == ep || rl.episode == ep)
+                    } else {
+                        true
+                    }
+                    val link = rl.resourceLink
+                    if (matchesEpisode && !link.isNullOrBlank() && !link.contains(".mpd") && !MovieBoxSigner.isFakeClipUrl(link)) {
+                        val res = rl.resolution
+                        val size = rl.size
                         val title = when {
                             res >= 1080 -> "1080p Full HD"
                             res >= 720 -> "720p HD"
                             res >= 480 -> "480p SD"
-                            else -> s.title
+                            res > 0 -> "${res}p"
+                            else -> "Standard Quality"
                         }
                         options.add(
                             DownloadQualityOption(
                                 title = title,
                                 resolution = res,
-                                sizeBytes = s.size,
-                                sizeFormatted = formatDownloadSize(s.size, res),
-                                streamUrl = s.streamUrl,
-                                signCookie = s.signCookie,
-                                codec = s.codecName,
+                                sizeBytes = size,
+                                sizeFormatted = formatDownloadSize(size, res),
+                                streamUrl = link,
+                                codec = rl.codecName ?: "h264",
                                 season = se,
                                 episode = ep
                             )
                         )
                     }
                 }
-            } catch (e: Exception) {}
+                if (options.isEmpty() && !rd.downloadUrl.isNullOrBlank() && !rd.downloadUrl.contains(".mpd") && !MovieBoxSigner.isFakeClipUrl(rd.downloadUrl)) {
+                    val sBytes = rd.totalSize?.toLongOrNull() ?: 0L
+                    options.add(
+                        DownloadQualityOption(
+                            title = "720p HD",
+                            resolution = 720,
+                            sizeBytes = sBytes,
+                            sizeFormatted = formatDownloadSize(sBytes, 720),
+                            streamUrl = rd.downloadUrl,
+                            codec = "h264",
+                            season = se,
+                            episode = ep
+                        )
+                    )
+                }
+            }
         }
 
-        val distinct = options.distinctBy { it.resolution }.sortedByDescending { it.resolution }
+        val distinct = options
+            .filter { !it.streamUrl.contains(".mpd") && !MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
+            .distinctBy { it.resolution }
+            .sortedByDescending { it.resolution }
         return@withContext distinct
     }
 

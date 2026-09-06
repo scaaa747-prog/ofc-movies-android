@@ -78,43 +78,67 @@ class DownloadService : Service() {
         return START_NOT_STICKY
     }
 
+    private val isProcessingQueue = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private fun startDownloadingQueue() {
         serviceScope.launch {
-            while (downloadManager.taskQueue.isNotEmpty()) {
-                val task = downloadManager.taskQueue.poll() ?: break
-                if (downloadManager.isCancelled(task.id)) {
-                    downloadManager.clearCancelled(task.id)
-                    continue
-                }
-
-                downloadManager.currentRunningTaskId = task.id
-                storageManager.updateDownloadStatus(task.id, "Downloading")
-
-                val success = downloadSingleTask(task)
-                if (success) {
-                    try {
-                        val completedNotif = NotificationCompat.Builder(this@DownloadService, CHANNEL_ID)
-                            .setSmallIcon(R.drawable.ic_download_notif)
-                            .setContentTitle("OFC Movies")
-                            .setContentText("Downloaded: ${task.displayTitle}")
-                            .setContentIntent(createOpenDownloadsPendingIntent())
-                            .setAutoCancel(true)
-                            .build()
-                        notificationManager.notify(task.id.hashCode(), completedNotif)
-                    } catch (e: Throwable) {
-                        android.util.Log.e("DownloadService", "Failed to show completed notification", e)
-                    }
-                }
-
-                downloadManager.removeProgress(task.id)
-                downloadManager.currentRunningTaskId = null
+            if (!isProcessingQueue.compareAndSet(false, true)) {
+                return@launch
             }
-
-            // All downloads finished
             try {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } catch (e: Throwable) {}
-            stopSelf()
+                while (true) {
+                    val task = downloadManager.taskQueue.poll() ?: break
+                    if (downloadManager.isCancelled(task.id)) {
+                        downloadManager.clearCancelled(task.id)
+                        continue
+                    }
+
+                    downloadManager.currentRunningTaskId = task.id
+                    storageManager.updateDownloadStatus(task.id, "Downloading")
+
+                    val success = downloadSingleTask(task)
+                    if (success) {
+                        try {
+                            val completedNotif = NotificationCompat.Builder(this@DownloadService, CHANNEL_ID)
+                                .setSmallIcon(R.drawable.ic_download_notif)
+                                .setContentTitle("OFC Movies")
+                                .setContentText("Downloaded: ${task.displayTitle}")
+                                .setContentIntent(createOpenDownloadsPendingIntent())
+                                .setAutoCancel(true)
+                                .build()
+                            notificationManager.notify(task.id.hashCode(), completedNotif)
+                        } catch (e: Throwable) {
+                            android.util.Log.e("DownloadService", "Failed to show completed notification", e)
+                        }
+                    } else {
+                        try {
+                            val failedNotif = NotificationCompat.Builder(this@DownloadService, CHANNEL_ID)
+                                .setSmallIcon(R.drawable.ic_download_notif)
+                                .setContentTitle("OFC Movies: Download Failed")
+                                .setContentText("Failed to download ${task.displayTitle}")
+                                .setContentIntent(createOpenDownloadsPendingIntent())
+                                .setAutoCancel(true)
+                                .build()
+                            notificationManager.notify(task.id.hashCode(), failedNotif)
+                        } catch (e: Throwable) {
+                            android.util.Log.e("DownloadService", "Failed to show failed notification", e)
+                        }
+                    }
+
+                    downloadManager.removeProgress(task.id)
+                    downloadManager.currentRunningTaskId = null
+                }
+            } finally {
+                isProcessingQueue.set(false)
+                if (downloadManager.taskQueue.isEmpty()) {
+                    try {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } catch (e: Throwable) {}
+                    stopSelf()
+                } else {
+                    startDownloadingQueue()
+                }
+            }
         }
     }
 
@@ -123,7 +147,7 @@ class DownloadService : Service() {
         var createdUri: Uri? = null
 
         return try {
-            val cleanCookie = task.signCookie?.trim()?.trimEnd(';') ?: ""
+            val cleanCookie = task.signCookie?.replace("\r", "")?.replace("\n", "")?.trim()?.trimEnd(';') ?: ""
             val req = Request.Builder()
                 .url(task.streamUrl)
                 .header("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
