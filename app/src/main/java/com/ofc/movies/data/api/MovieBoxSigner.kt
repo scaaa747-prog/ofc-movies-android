@@ -134,9 +134,7 @@ object MovieBoxSigner {
     fun isFakeClipUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return true
         val lower = url.lowercase()
-        return lower.contains("/other/") ||
-                lower.contains("macdn.aoneroom.com") ||
-                lower.contains("9a0461bc39da389663bf3dbb17091d3f") ||
+        return lower.contains("9a0461bc39da389663bf3dbb17091d3f") ||
                 lower.contains("b164fbfb4347792950bdfbfb563d39d9")
     }
 

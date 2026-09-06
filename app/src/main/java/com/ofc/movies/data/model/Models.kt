@@ -267,6 +267,9 @@ data class MovieDetailData(
     @SerializedName("isCam")
     val isCam: Boolean? = null,
 
+    @SerializedName("resourceDetectors")
+    val resourceDetectors: List<ResourceDetector> = emptyList(),
+
     @SerializedName("subjectType")
     val rawSubjectType: Any? = null
 ) {
@@ -589,3 +592,80 @@ data class ContinueWatchingItem(
     val durationMinutes: Int,
     val lastWatchedEpisode: String? = null
 )
+
+data class ResourceDetector(
+    @SerializedName("type")
+    val type: Int = 0,
+    @SerializedName("totalEpisode")
+    val totalEpisode: Int = 0,
+    @SerializedName("totalSize")
+    val totalSize: String? = null,
+    @SerializedName("downloadUrl")
+    val downloadUrl: String? = null,
+    @SerializedName("resolutionList")
+    val resolutionList: List<ResolutionListItem> = emptyList()
+)
+
+data class ResolutionListItem(
+    @SerializedName("episode")
+    val episode: Int = 0,
+    @SerializedName("se")
+    val se: Int = 0,
+    @SerializedName("ep")
+    val ep: Int = 0,
+    @SerializedName("title")
+    val title: String? = null,
+    @SerializedName("resourceLink")
+    val resourceLink: String? = null,
+    @SerializedName("size")
+    val rawSize: Any? = null,
+    @SerializedName("resolution")
+    val rawResolution: Any? = null,
+    @SerializedName("duration")
+    val rawDuration: Any? = null,
+    @SerializedName("codecName")
+    val codecName: String? = null
+) {
+    val resolution: Int
+        get() = when (rawResolution) {
+            is Number -> rawResolution.toInt()
+            is String -> rawResolution.toIntOrNull() ?: 0
+            else -> 0
+        }
+
+    val size: Long
+        get() = when (rawSize) {
+            is Number -> rawSize.toLong()
+            is String -> rawSize.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+}
+
+data class DownloadQualityOption(
+    val title: String,
+    val resolution: Int,
+    val sizeBytes: Long,
+    val sizeFormatted: String,
+    val streamUrl: String,
+    val signCookie: String? = null,
+    val codec: String = "h264",
+    val season: Int = 0,
+    val episode: Int = 0
+)
+
+fun formatDownloadSize(sizeBytes: Long, resolution: Int): String {
+    return if (sizeBytes > 0L) {
+        if (sizeBytes >= 1_000_000_000L) {
+            "%.1f GB".format(sizeBytes.toDouble() / (1024 * 1024 * 1024))
+        } else {
+            "${sizeBytes / (1024 * 1024)} MB"
+        }
+    } else {
+        when {
+            resolution >= 1080 -> "~1.2 GB"
+            resolution >= 720 -> "~650 MB"
+            resolution >= 480 -> "~300 MB"
+            else -> "~200 MB"
+        }
+    }
+}

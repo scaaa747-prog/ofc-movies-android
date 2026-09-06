@@ -265,37 +265,150 @@ class MovieRepository(
             }
         }
 
-    suspend fun getDownloadStream(subjectId: String, se: Int = 0, ep: Int = 0): PlayableStream? =
-        withContext(Dispatchers.IO) {
-            try {
-                // 1. Try resources endpoint for legitimate direct downloadable link
-                val res = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
-                val list = res.data?.list ?: emptyList()
-                val direct = list.firstOrNull { r ->
-                    val link = r.resourceLink ?: ""
-                    link.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(link)
+    suspend fun getDownloadOptions(
+        subjectId: String,
+        se: Int = 0,
+        ep: Int = 0,
+        preloadedDetail: MovieDetailData? = null
+    ): List<DownloadQualityOption> = withContext(Dispatchers.IO) {
+        val options = mutableListOf<DownloadQualityOption>()
+
+        // 1. First priority: Real direct MP4 files from resourceDetectors
+        val detail = preloadedDetail ?: getMovieDetail(subjectId).getOrNull()
+        val detectors = detail?.resourceDetectors ?: emptyList()
+        for (rd in detectors) {
+            val list = rd.resolutionList
+            for (rl in list) {
+                val matchesEpisode = if (detail?.subjectType == 2) {
+                    (rl.se == se || (se == 0 && rl.se <= 1)) && (rl.ep == ep || rl.episode == ep)
+                } else {
+                    true
                 }
-                if (direct != null && !direct.resourceLink.isNullOrEmpty()) {
-                    val resInt = if (direct.resolution > 0) direct.resolution else 720
-                    return@withContext PlayableStream(
-                        title = "${resInt}P",
-                        resolution = resInt,
-                        codecName = direct.codecName ?: "h264",
-                        size = direct.size,
-                        duration = 0L,
-                        streamUrl = direct.resourceLink,
-                        isDash = false,
-                        signCookie = direct.signCookie,
+                if (matchesEpisode && !rl.resourceLink.isNullOrBlank()) {
+                    val res = rl.resolution
+                    val size = rl.size
+                    val title = when {
+                        res >= 1080 -> "1080p Full HD"
+                        res >= 720 -> "720p HD"
+                        res >= 480 -> "480p SD"
+                        res > 0 -> "${res}p"
+                        else -> "Standard Quality"
+                    }
+                    options.add(
+                        DownloadQualityOption(
+                            title = title,
+                            resolution = res,
+                            sizeBytes = size,
+                            sizeFormatted = formatDownloadSize(size, res),
+                            streamUrl = rl.resourceLink,
+                            codec = rl.codecName ?: "h264",
+                            season = se,
+                            episode = ep
+                        )
+                    )
+                }
+            }
+            if (options.isEmpty() && !rd.downloadUrl.isNullOrBlank()) {
+                val sBytes = rd.totalSize?.toLongOrNull() ?: 0L
+                options.add(
+                    DownloadQualityOption(
+                        title = "720p HD",
+                        resolution = 720,
+                        sizeBytes = sBytes,
+                        sizeFormatted = formatDownloadSize(sBytes, 720),
+                        streamUrl = rd.downloadUrl,
+                        codec = "h264",
                         season = se,
                         episode = ep
                     )
-                }
-            } catch (e: Exception) {
-                // Ignore fallback
+                )
             }
+        }
 
-            // 2. Otherwise only return a real non-fake stream
-            val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
-            return@withContext streams.firstOrNull { !it.isDash && !MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
+        // 2. Secondary fallback: resources API endpoint
+        if (options.isEmpty()) {
+            try {
+                val resResp = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
+                val list = resResp.data?.list ?: emptyList()
+                for (r in list) {
+                    val link = r.resourceLink ?: ""
+                    if (link.isNotEmpty()) {
+                        val res = if (r.resolution > 0) r.resolution else 720
+                        val size = r.size
+                        val title = when {
+                            res >= 1080 -> "1080p Full HD"
+                            res >= 720 -> "720p HD"
+                            res >= 480 -> "480p SD"
+                            else -> "${res}p"
+                        }
+                        options.add(
+                            DownloadQualityOption(
+                                title = title,
+                                resolution = res,
+                                sizeBytes = size,
+                                sizeFormatted = formatDownloadSize(size, res),
+                                streamUrl = link,
+                                signCookie = r.signCookie,
+                                codec = r.codecName ?: "h264",
+                                season = se,
+                                episode = ep
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+
+        // 3. Third fallback: playable streams
+        if (options.isEmpty()) {
+            try {
+                val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
+                for (s in streams) {
+                    if (s.streamUrl.isNotEmpty()) {
+                        val res = s.resolution
+                        val title = when {
+                            res >= 1080 -> "1080p Full HD"
+                            res >= 720 -> "720p HD"
+                            res >= 480 -> "480p SD"
+                            else -> s.title
+                        }
+                        options.add(
+                            DownloadQualityOption(
+                                title = title,
+                                resolution = res,
+                                sizeBytes = s.size,
+                                sizeFormatted = formatDownloadSize(s.size, res),
+                                streamUrl = s.streamUrl,
+                                signCookie = s.signCookie,
+                                codec = s.codecName,
+                                season = se,
+                                episode = ep
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+
+        val distinct = options.distinctBy { it.resolution }.sortedByDescending { it.resolution }
+        return@withContext distinct
+    }
+
+    suspend fun getDownloadStream(subjectId: String, se: Int = 0, ep: Int = 0): PlayableStream? =
+        withContext(Dispatchers.IO) {
+            val options = getDownloadOptions(subjectId, se, ep)
+            val best = options.firstOrNull() ?: return@withContext null
+            PlayableStream(
+                title = best.title,
+                resolution = best.resolution,
+                codecName = best.codec,
+                size = best.sizeBytes,
+                duration = 0L,
+                streamUrl = best.streamUrl,
+                isDash = false,
+                signCookie = best.signCookie,
+                season = se,
+                episode = ep
+            )
         }
 }

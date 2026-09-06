@@ -182,7 +182,9 @@ fun VideoPlayerScreen(
         streamError = null
 
         // 1. Check if user already downloaded this title offline
-        val downloadedItem = storageManager.getDownloads().firstOrNull { it.id == movieId }
+        val targetId = if (season > 0 && episode > 0) "${movieId}_s${season}_e${episode}" else movieId
+        val downloadedItem = storageManager.getDownloads().firstOrNull { it.id == targetId }
+            ?: storageManager.getDownloads().firstOrNull { it.id == movieId }
         var localPlaySuccess = false
         if (downloadedItem != null) {
             if (MovieBoxSigner.isFakeClipUrl(downloadedItem.streamUrl)) {
@@ -191,7 +193,7 @@ fun VideoPlayerScreen(
                 if (downloadedItem.downloadId > 0L) {
                     try { dm?.remove(downloadedItem.downloadId) } catch (e: Exception) {}
                 }
-                storageManager.removeDownload(movieId)
+                storageManager.removeDownload(downloadedItem.id)
             } else if (downloadedItem.downloadId > 0L) {
                 try {
                     val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager

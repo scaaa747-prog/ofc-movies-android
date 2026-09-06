@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -70,6 +72,28 @@ fun MovieDetailScreen(
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var isInMyList by remember { mutableStateOf(storageManager.isInWatchlist(movieId)) }
     var isMovieDownloaded by remember { mutableStateOf(storageManager.isDownloaded(movieId)) }
+
+    var showDownloadDialog by remember { mutableStateOf(false) }
+    var downloadOptions by remember { mutableStateOf<List<DownloadQualityOption>>(emptyList()) }
+    var isFetchingDownloadOptions by remember { mutableStateOf(false) }
+    var selectedDownloadSeason by remember { mutableIntStateOf(1) }
+    var selectedDownloadEpisodes by remember { mutableStateOf<Set<Int>>(setOf(1)) }
+    var downloadDialogDubId by remember { mutableStateOf(movieId) }
+
+    LaunchedEffect(showDownloadDialog, downloadDialogDubId, selectedDownloadSeason) {
+        if (showDownloadDialog) {
+            isFetchingDownloadOptions = true
+            val playSeason = if (movieDetail?.subjectType == 2 && seasons.isNotEmpty()) selectedDownloadSeason else 0
+            val playEpisode = if (movieDetail?.subjectType == 2 && seasons.isNotEmpty()) 1 else 0
+            downloadOptions = repository.getDownloadOptions(
+                subjectId = downloadDialogDubId,
+                se = playSeason,
+                ep = playEpisode,
+                preloadedDetail = movieDetail
+            )
+            isFetchingDownloadOptions = false
+        }
+    }
 
     LaunchedEffect(movieId) {
         isLoading = true
@@ -376,72 +400,10 @@ fun MovieDetailScreen(
                             // Download Button (Real offline manager via Android DownloadManager)
                             IconButton(
                                 onClick = {
-                                    if (isMovieDownloaded) {
-                                        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                                        val existing = storageManager.getDownloads().firstOrNull { it.id == movieId }
-                                        if (existing != null && existing.downloadId > 0L) {
-                                            try { dm?.remove(existing.downloadId) } catch (e: Exception) {}
-                                        }
-                                        storageManager.removeDownload(movieId)
-                                        isMovieDownloaded = false
-                                        Toast.makeText(context, "Removed from Downloads", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        scope.launch {
-                                            Toast.makeText(context, "Preparing download...", Toast.LENGTH_SHORT).show()
-                                            val playSeason = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedSeason else 0
-                                            val playEpisode = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedEpisode else 0
-                                            val stream = repository.getDownloadStream(selectedDubId, playSeason, playEpisode)
-                                            if (stream != null && stream.streamUrl.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(stream.streamUrl)) {
-                                                try {
-                                                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                                                    val cleanTitle = detail.title.replace(Regex("[^a-zA-Z0-9.-]"), "_")
-                                                    val fileName = "${cleanTitle}_${stream.resolution}p.mp4"
-                                                    val req = DownloadManager.Request(Uri.parse(stream.streamUrl))
-                                                        .setTitle(detail.title)
-                                                        .setDescription("Downloading ${stream.title}")
-                                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                        .setAllowedOverMetered(true)
-                                                        .setAllowedOverRoaming(true)
-
-                                                    val cleanCookie = stream.signCookie?.trim()?.trimEnd(';') ?: ""
-                                                    if (cleanCookie.isNotEmpty()) {
-                                                        req.addRequestHeader("Cookie", cleanCookie)
-                                                        req.addRequestHeader("Referer", "https://www.movieboxpro.app/")
-                                                    }
-                                                    req.addRequestHeader("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
-
-                                                    try {
-                                                        req.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                    } catch (e: Exception) {
-                                                        try {
-                                                            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                        } catch (e2: Exception) {}
-                                                    }
-
-                                                    val downloadId = dm.enqueue(req)
-
-                                                    storageManager.addDownload(
-                                                        DownloadedItem(
-                                                            id = movieId,
-                                                            title = detail.title,
-                                                            coverUrl = detail.coverUrl,
-                                                            sizeText = if (stream.size > 0) "${stream.size / (1024 * 1024)} MB" else "${stream.resolution}P",
-                                                            quality = stream.title,
-                                                            downloadTimeMs = System.currentTimeMillis(),
-                                                            streamUrl = stream.streamUrl,
-                                                            downloadId = downloadId
-                                                        )
-                                                    )
-                                                    isMovieDownloaded = true
-                                                    Toast.makeText(context, "Download started! Check notifications", Toast.LENGTH_LONG).show()
-                                                } catch (e: Exception) {
-                                                    Toast.makeText(context, "Download failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                                }
-                                            } else {
-                                                Toast.makeText(context, "Direct download is not available for this title. Online streaming is active!", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                    }
+                                    downloadDialogDubId = selectedDubId
+                                    selectedDownloadSeason = if (seasons.isNotEmpty()) selectedSeason else 1
+                                    selectedDownloadEpisodes = setOf(if (selectedEpisode > 0) selectedEpisode else 1)
+                                    showDownloadDialog = true
                                 },
                                 modifier = Modifier
                                     .size(50.dp)
@@ -706,6 +668,334 @@ fun MovieDetailScreen(
             }
         }
 
+        // ==========================================
+        // DOWNLOAD QUALITY PICKER & SERIES MULTI-EPISODE DIALOG
+        // ==========================================
+        if (showDownloadDialog && movieDetail != null) {
+            val detail = movieDetail!!
+            val isSeries = detail.subjectType == 2 && seasons.isNotEmpty()
+            val currentSeasonItem = seasons.firstOrNull { it.seasonNumber == selectedDownloadSeason } ?: seasons.firstOrNull()
+            val maxEp = currentSeasonItem?.maxEpisode ?: 1
+
+            AlertDialog(
+                onDismissRequest = { showDownloadDialog = false },
+                containerColor = DarkSurfaceElevated,
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDownward,
+                            contentDescription = null,
+                            tint = PrimaryRed,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (isSeries) "Download Series" else "Download Movie",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = TextPrimary
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        // 1. Audio Dubs Selector (if dubs exist)
+                        if (detail.dubs.isNotEmpty()) {
+                            Text(
+                                text = "Audio Language",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(detail.dubs) { dub ->
+                                    val isSelected = dub.subjectId == downloadDialogDubId
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (isSelected) PrimaryRed else DarkCard,
+                                        modifier = Modifier.clickable { downloadDialogDubId = dub.subjectId }
+                                    ) {
+                                        Text(
+                                            text = dub.lanName,
+                                            color = if (isSelected) Color.White else TextSecondary,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                        }
+
+                        // 2. TV Series Season & Episode Multi-Selector
+                        if (isSeries) {
+                            if (seasons.size > 1) {
+                                Text(
+                                    text = "Season",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = TextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(seasons) { s ->
+                                        val isSelected = s.seasonNumber == selectedDownloadSeason
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = if (isSelected) PrimaryRed else DarkCard,
+                                            modifier = Modifier.clickable {
+                                                selectedDownloadSeason = s.seasonNumber
+                                                selectedDownloadEpisodes = setOf(1)
+                                            }
+                                        ) {
+                                            Text(
+                                                text = "Season ${s.seasonNumber}",
+                                                color = if (isSelected) Color.White else TextSecondary,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                ),
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
+                            }
+
+                            // Episodes selection header with Select All / Deselect All
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Episodes (${selectedDownloadEpisodes.size} selected)",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = TextSecondary
+                                )
+                                val allEpSet = (1..maxEp).toSet()
+                                val isAllSelected = selectedDownloadEpisodes.containsAll(allEpSet)
+                                Text(
+                                    text = if (isAllSelected) "Deselect All" else "Select All ($maxEp)",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = PrimaryRed,
+                                    modifier = Modifier
+                                        .clickable {
+                                            selectedDownloadEpisodes = if (isAllSelected) {
+                                                setOf(1)
+                                            } else {
+                                                allEpSet
+                                            }
+                                        }
+                                        .padding(4.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Episode chips
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items((1..maxEp).toList()) { ep ->
+                                    val isEpSelected = selectedDownloadEpisodes.contains(ep)
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isEpSelected) PrimaryRed.copy(alpha = 0.25f) else DarkCard,
+                                        border = if (isEpSelected) androidx.compose.foundation.BorderStroke(1.dp, PrimaryRed) else null,
+                                        modifier = Modifier.clickable {
+                                            selectedDownloadEpisodes = if (isEpSelected) {
+                                                if (selectedDownloadEpisodes.size > 1) {
+                                                    selectedDownloadEpisodes - ep
+                                                } else {
+                                                    selectedDownloadEpisodes
+                                                }
+                                            } else {
+                                                selectedDownloadEpisodes + ep
+                                            }
+                                        }
+                                    ) {
+                                        Text(
+                                            text = "EP $ep",
+                                            color = if (isEpSelected) PrimaryRed else TextPrimary,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+
+                        // 3. Choose Quality Options
+                        Text(
+                            text = "Choose Quality",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (isFetchingDownloadOptions) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = PrimaryRed,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Checking stream qualities...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        } else if (downloadOptions.isEmpty()) {
+                            Text(
+                                text = "No direct download qualities available for this audio track.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                modifier = Modifier.padding(vertical = 12.dp)
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                downloadOptions.forEach { option ->
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = DarkCard,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                if (isSeries) {
+                                                    showDownloadDialog = false
+                                                    val epsToDownload = selectedDownloadEpisodes.toList().sorted()
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Starting ${epsToDownload.size} download(s)...",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                        for (ep in epsToDownload) {
+                                                            val epOptions = repository.getDownloadOptions(
+                                                                subjectId = downloadDialogDubId,
+                                                                se = selectedDownloadSeason,
+                                                                ep = ep,
+                                                                preloadedDetail = movieDetail
+                                                            )
+                                                            val match = epOptions.firstOrNull { it.resolution == option.resolution }
+                                                                ?: epOptions.firstOrNull { it.resolution > 0 }
+                                                                ?: epOptions.firstOrNull()
+                                                            if (match != null) {
+                                                                startSingleDownload(
+                                                                    context = context,
+                                                                    storageManager = storageManager,
+                                                                    movieId = downloadDialogDubId,
+                                                                    title = detail.title,
+                                                                    streamUrl = match.streamUrl,
+                                                                    quality = "${match.resolution}p",
+                                                                    se = selectedDownloadSeason,
+                                                                    ep = ep,
+                                                                    coverUrl = detail.coverUrl,
+                                                                    fileSizeText = match.sizeFormatted,
+                                                                    signCookie = match.signCookie
+                                                                )
+                                                            }
+                                                        }
+                                                        isMovieDownloaded = storageManager.isDownloaded(movieId)
+                                                    }
+                                                } else {
+                                                    val ok = startSingleDownload(
+                                                        context = context,
+                                                        storageManager = storageManager,
+                                                        movieId = downloadDialogDubId,
+                                                        title = detail.title,
+                                                        streamUrl = option.streamUrl,
+                                                        quality = "${option.resolution}p",
+                                                        se = 0,
+                                                        ep = 0,
+                                                        coverUrl = detail.coverUrl,
+                                                        fileSizeText = option.sizeFormatted,
+                                                        signCookie = option.signCookie
+                                                    )
+                                                    if (ok) {
+                                                        isMovieDownloaded = true
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Download started: ${detail.title} (${option.resolution}p)",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                    showDownloadDialog = false
+                                                }
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    text = option.title,
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = TextPrimary
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                val epCountText = if (isSeries && selectedDownloadEpisodes.size > 1) {
+                                                    "${option.sizeFormatted} / ep (${selectedDownloadEpisodes.size} eps)"
+                                                } else {
+                                                    option.sizeFormatted
+                                                }
+                                                Text(
+                                                    text = epCountText,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = RatingGold
+                                                )
+                                            }
+
+                                            Icon(
+                                                imageVector = Icons.Filled.ArrowDownward,
+                                                contentDescription = "Download ${option.title}",
+                                                tint = PrimaryRed,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDownloadDialog = false }) {
+                        Text(text = "Close", color = TextSecondary)
+                    }
+                }
+            )
+        }
+
         // Floating Back Button (Top Left)
         IconButton(
             onClick = onBackClick,
@@ -723,5 +1013,79 @@ fun MovieDetailScreen(
                 modifier = Modifier.size(22.dp)
             )
         }
+    }
+}
+
+private fun startSingleDownload(
+    context: Context,
+    storageManager: StorageManager,
+    movieId: String,
+    title: String,
+    streamUrl: String,
+    quality: String,
+    se: Int = 0,
+    ep: Int = 0,
+    coverUrl: String = "",
+    fileSizeText: String = "",
+    signCookie: String? = null
+): Boolean {
+    return try {
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        if (dm == null) {
+            return false
+        }
+        val safeTitle = title.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
+        val fileName = if (se > 0 && ep > 0) {
+            "${safeTitle}_S${se}E${ep}_${quality}.mp4"
+        } else if (ep > 0) {
+            "${safeTitle}_EP${ep}_${quality}.mp4"
+        } else {
+            "${safeTitle}_${quality}.mp4"
+        }
+
+        val request = DownloadManager.Request(Uri.parse(streamUrl)).apply {
+            setTitle(if (se > 0 && ep > 0) "$title (S${se}E${ep})" else title)
+            setDescription("Downloading $quality video")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            addRequestHeader("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
+            addRequestHeader("Referer", "https://h5.aoneroom.com/")
+            if (!signCookie.isNullOrBlank()) {
+                addRequestHeader("Cookie", signCookie)
+            }
+        }
+        val downloadId = dm.enqueue(request)
+
+        val itemId = if (se > 0 && ep > 0) {
+            "${movieId}_s${se}_e${ep}"
+        } else if (ep > 0) {
+            "${movieId}_ep${ep}"
+        } else {
+            movieId
+        }
+
+        val displayTitle = if (se > 0 && ep > 0) {
+            "$title - S${se}E${ep}"
+        } else if (ep > 0) {
+            "$title - EP $ep"
+        } else {
+            title
+        }
+
+        storageManager.addDownload(
+            DownloadedItem(
+                id = itemId,
+                title = displayTitle,
+                coverUrl = coverUrl,
+                sizeText = fileSizeText.ifEmpty { quality },
+                quality = quality,
+                downloadTimeMs = System.currentTimeMillis(),
+                streamUrl = streamUrl,
+                downloadId = downloadId
+            )
+        )
+        true
+    } catch (e: Exception) {
+        false
     }
 }
