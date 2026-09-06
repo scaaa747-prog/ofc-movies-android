@@ -936,7 +936,8 @@ fun MovieDetailScreen(
                                                                             sizeText = match.sizeFormatted,
                                                                             signCookie = match.signCookie,
                                                                             season = selectedDownloadSeason,
-                                                                            episode = ep
+                                                                            episode = ep,
+                                                                            estimatedSizeBytes = match.sizeBytes
                                                                         )
                                                                     )
                                                                 }
@@ -964,7 +965,8 @@ fun MovieDetailScreen(
                                                             sizeText = option.sizeFormatted,
                                                             signCookie = option.signCookie,
                                                             season = 0,
-                                                            episode = 0
+                                                            episode = 0,
+                                                            estimatedSizeBytes = option.sizeBytes
                                                         )
                                                         downloadManager.enqueueTasks(listOf(task))
                                                     } catch (e: Throwable) {

@@ -22,7 +22,8 @@ data class DownloadTask(
     val sizeText: String,
     val signCookie: String? = null,
     val season: Int = 0,
-    val episode: Int = 0
+    val episode: Int = 0,
+    val estimatedSizeBytes: Long = 0L
 )
 
 data class DownloadProgress(

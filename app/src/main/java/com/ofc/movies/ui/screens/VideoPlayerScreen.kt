@@ -203,7 +203,7 @@ fun VideoPlayerScreen(
                         season = season,
                         episode = episode
                     )
-                    playStream(context, exoPlayer, stream)
+                    playStream(context, exoPlayer, stream, isOffline = true)
                     isLoadingStreams = false
                     localPlaySuccess = true
                 } catch (e: Exception) {
@@ -743,14 +743,26 @@ fun VideoPlayerScreen(
 }
 
 @OptIn(UnstableApi::class)
-private fun playStream(context: Context, player: ExoPlayer, stream: PlayableStream, seekToMs: Long = 0L) {
+private fun playStream(
+    context: Context,
+    player: ExoPlayer,
+    stream: PlayableStream,
+    seekToMs: Long = 0L,
+    isOffline: Boolean = false
+) {
     player.stop()
     player.clearMediaItems()
 
-    val dataSourceFactory = com.ofc.movies.data.download.DownloadCacheManager.createCacheDataSourceFactory(
-        context.applicationContext,
-        stream.signCookie
-    )
+    val dataSourceFactory = if (isOffline) {
+        com.ofc.movies.data.download.DownloadCacheManager.createReadOnlyCacheDataSourceFactory(
+            context.applicationContext,
+            stream.signCookie
+        )
+    } else {
+        com.ofc.movies.data.download.DownloadCacheManager.createHttpDataSourceFactory(
+            stream.signCookie
+        )
+    }
 
     val mediaItem = MediaItem.Builder()
         .setUri(stream.streamUrl)

@@ -34,7 +34,10 @@ import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.formatDownloadSize
 import com.ofc.movies.ui.components.DownloadNavIcon
 import com.ofc.movies.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -45,15 +48,17 @@ fun DownloadsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val storageManager = remember { StorageManager.getInstance(context) }
     val appDownloadManager = remember { AppDownloadManager.getInstance(context) }
     val inAppProgressMap by appDownloadManager.progressMap.collectAsState()
 
     var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
     var downloadStatuses by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var itemToDelete by remember { mutableStateOf<DownloadedItem?>(null) }
 
-    // Auto-refresh downloads list whenever inAppProgressMap updates
-    LaunchedEffect(inAppProgressMap) {
+    // Refresh downloads list only when a task starts, finishes, or changes status
+    LaunchedEffect(inAppProgressMap.keys, inAppProgressMap.values.map { it.status }) {
         downloads = storageManager.getDownloads()
     }
 
@@ -276,11 +281,13 @@ fun DownloadsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isDownloading) {
-                                    val progressFraction = if (inApp != null && inApp.totalBytes > 0) {
-                                        (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0f, 1f)
-                                    } else 0f
+                                    val circleProgress = if (inApp != null && inApp.percentage > 0) {
+                                        (inApp.percentage.toFloat() / 100f).coerceIn(0.05f, 1f)
+                                    } else if (inApp != null && inApp.totalBytes > 0 && inApp.bytesDownloaded > 0) {
+                                        (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0.05f, 1f)
+                                    } else 0.05f
                                     CircularProgressIndicator(
-                                        progress = { progressFraction },
+                                        progress = { circleProgress },
                                         modifier = Modifier.size(28.dp),
                                         color = PrimaryRed,
                                         strokeWidth = 3.dp,
@@ -330,13 +337,13 @@ fun DownloadsScreen(
                                     )
 
                                     if (isDownloading) {
-                                        val downloadedStr = if (inApp != null) formatDownloadSize(inApp.bytesDownloaded, 0) else "0 MB"
+                                        val downloadedStr = if (inApp != null && inApp.bytesDownloaded > 0) formatDownloadSize(inApp.bytesDownloaded, 0) else "0 MB"
                                         val totalStr = if (inApp != null && inApp.totalBytes > 0) {
                                             formatDownloadSize(inApp.totalBytes, 0)
                                         } else {
                                             item.sizeText
                                         }
-                                        val pctStr = if (inApp != null && inApp.percentage > 0) "${inApp.percentage}%" else "Starting"
+                                        val pctStr = if (inApp != null && inApp.percentage > 0) "${inApp.percentage}%" else "Downloading"
                                         Text(
                                             text = "$downloadedStr / $totalStr ($pctStr)",
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
@@ -375,10 +382,14 @@ fun DownloadsScreen(
 
                                 if (isDownloading || isQueued) {
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    val progressFraction = if (isDownloading && inApp != null && inApp.totalBytes > 0) {
-                                        (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0f, 1f)
-                                    } else if (isDownloading) {
-                                        0.05f
+                                    val progressFraction = if (isDownloading && inApp != null) {
+                                        if (inApp.percentage > 0) {
+                                            (inApp.percentage.toFloat() / 100f).coerceIn(0f, 1f)
+                                        } else if (inApp.totalBytes > 0 && inApp.bytesDownloaded > 0) {
+                                            (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0f, 1f)
+                                        } else {
+                                            0.05f
+                                        }
                                     } else {
                                         0f
                                     }
@@ -396,32 +407,7 @@ fun DownloadsScreen(
 
                             IconButton(
                                 onClick = {
-                                    appDownloadManager.cancelTask(item.id)
-                                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                                    if (item.downloadId > 0L) {
-                                        try {
-                                            dm?.remove(item.downloadId)
-                                        } catch (e: Exception) {
-                                            // ignore
-                                        }
-                                    }
-                                    if (item.localUri.isNotEmpty()) {
-                                        try {
-                                            val uri = Uri.parse(item.localUri)
-                                            if (uri.scheme == "content") {
-                                                context.contentResolver.delete(uri, null, null)
-                                            } else if (uri.scheme == "file") {
-                                                File(uri.path ?: "").delete()
-                                            }
-                                        } catch (e: Exception) {}
-                                    }
-                                    if (item.streamUrl.isNotEmpty()) {
-                                        try {
-                                            com.ofc.movies.data.download.DownloadCacheManager.getCache(context).removeResource(item.streamUrl)
-                                        } catch (e: Exception) {}
-                                    }
-                                    storageManager.removeDownload(item.id)
-                                    downloads = storageManager.getDownloads()
+                                    itemToDelete = item
                                 },
                                 modifier = Modifier.size(36.dp)
                             ) {
@@ -436,6 +422,87 @@ fun DownloadsScreen(
                     }
                 }
             }
+        }
+
+        // Delete Confirmation Dialog
+        if (itemToDelete != null) {
+            val target = itemToDelete!!
+            AlertDialog(
+                onDismissRequest = { itemToDelete = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete",
+                        tint = PrimaryRed,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Delete Download?",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to delete \"${target.title}\"? This will permanently delete the downloaded video and free up storage space.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val toDelete = target
+                            itemToDelete = null
+                            scope.launch(Dispatchers.IO) {
+                                appDownloadManager.cancelTask(toDelete.id)
+                                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                                if (toDelete.downloadId > 0L) {
+                                    try {
+                                        dm?.remove(toDelete.downloadId)
+                                    } catch (e: Exception) {}
+                                }
+                                if (toDelete.localUri.isNotEmpty()) {
+                                    try {
+                                        val uri = Uri.parse(toDelete.localUri)
+                                        if (uri.scheme == "content") {
+                                            context.contentResolver.delete(uri, null, null)
+                                        } else if (uri.scheme == "file") {
+                                            File(uri.path ?: "").delete()
+                                        }
+                                    } catch (e: Exception) {}
+                                }
+                                if (toDelete.streamUrl.isNotEmpty()) {
+                                    try {
+                                        com.ofc.movies.data.download.DownloadCacheManager.removeDashDownload(context, toDelete.streamUrl)
+                                    } catch (e: Exception) {}
+                                }
+                                storageManager.removeDownload(toDelete.id)
+                                withContext(Dispatchers.Main) {
+                                    downloads = storageManager.getDownloads()
+                                    Toast.makeText(context, "Deleted \"${toDelete.title}\"", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { itemToDelete = null },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
+                    ) {
+                        Text("Cancel")
+                    }
+                },
+                containerColor = DarkCard
+            )
         }
     }
 }

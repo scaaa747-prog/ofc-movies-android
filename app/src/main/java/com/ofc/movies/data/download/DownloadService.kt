@@ -168,18 +168,25 @@ class DownloadService : Service() {
             val cacheFactory = DownloadCacheManager.createCacheDataSourceFactory(this, task.signCookie)
             downloader = DashDownloader(mediaItem, cacheFactory, executor)
 
+            val estimatedTotal = when {
+                task.estimatedSizeBytes > 0 -> task.estimatedSizeBytes
+                task.sizeText.isNotEmpty() -> parseSizeTextToBytes(task.sizeText)
+                else -> 0L
+            }
+
             downloadManager.updateProgress(
                 task.id,
                 DownloadProgress(
                     taskId = task.id,
                     bytesDownloaded = 0L,
-                    totalBytes = 0L,
+                    totalBytes = estimatedTotal,
                     percentage = 0,
                     status = "Downloading"
                 )
             )
 
             var lastUpdateMs = 0L
+            var maxBytesDownloaded = 0L
 
             downloader.download { contentLength, bytesDownloaded, percentDownloaded ->
                 if (downloadManager.isCancelled(task.id)) {
@@ -187,10 +194,15 @@ class DownloadService : Service() {
                     return@download
                 }
 
+                maxBytesDownloaded = maxOf(maxBytesDownloaded, bytesDownloaded)
                 val now = System.currentTimeMillis()
-                if (now - lastUpdateMs > 300) {
-                    val percent = percentDownloaded.toInt().coerceIn(0, 100)
-                    val total = if (contentLength > 0) contentLength else 0L
+                if (now - lastUpdateMs > 250) {
+                    val total = if (contentLength > 0) contentLength else estimatedTotal
+                    val percent = when {
+                        percentDownloaded in 0.01f..100.0f -> percentDownloaded.toInt().coerceIn(0, 100)
+                        total > 0 && bytesDownloaded > 0 -> ((bytesDownloaded * 100) / total).toInt().coerceIn(0, 99)
+                        else -> 0
+                    }
                     downloadManager.updateProgress(
                         task.id,
                         DownloadProgress(
@@ -214,11 +226,24 @@ class DownloadService : Service() {
                 return false
             }
 
+            val finalTotal = if (maxBytesDownloaded > 0) maxBytesDownloaded else estimatedTotal
+            downloadManager.updateProgress(
+                task.id,
+                DownloadProgress(
+                    taskId = task.id,
+                    bytesDownloaded = finalTotal,
+                    totalBytes = finalTotal,
+                    percentage = 100,
+                    status = "Ready"
+                )
+            )
+
+            val finalSizeText = if (maxBytesDownloaded > 0) formatDownloadSize(maxBytesDownloaded, 0) else task.sizeText
             storageManager.updateDownloadStatus(
                 id = task.id,
                 status = "Ready",
                 localUri = "cache://${task.streamUrl}",
-                sizeText = task.sizeText
+                sizeText = finalSizeText
             )
             true
         } catch (e: Exception) {
@@ -434,4 +459,23 @@ class DownloadService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun parseSizeTextToBytes(sizeText: String): Long {
+        return try {
+            val trimmed = sizeText.trim()
+            val parts = trimmed.split(" ")
+            if (parts.size >= 2) {
+                val num = parts[0].toDoubleOrNull() ?: return 0L
+                val unit = parts[1].uppercase()
+                when {
+                    unit.contains("GB") -> (num * 1024 * 1024 * 1024).toLong()
+                    unit.contains("MB") -> (num * 1024 * 1024).toLong()
+                    unit.contains("KB") -> (num * 1024).toLong()
+                    else -> num.toLong()
+                }
+            } else 0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
 }

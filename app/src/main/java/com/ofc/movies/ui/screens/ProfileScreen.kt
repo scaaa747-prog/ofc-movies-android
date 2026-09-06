@@ -330,6 +330,8 @@ fun ProfileScreen(
                         Coil.imageLoader(context).memoryCache?.clear()
                         context.cacheDir?.deleteRecursively()
                         context.cacheDir?.mkdirs()
+                        val activeUrls = storageManager.getDownloads().map { it.streamUrl }.toSet()
+                        com.ofc.movies.data.download.DownloadCacheManager.pruneOrphanedCache(context, activeUrls)
                     } catch (e: Exception) {
                         // ignore
                     }
