@@ -27,9 +27,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.Coil
+import com.ofc.movies.BuildConfig
 import com.ofc.movies.data.local.StorageManager
+import com.ofc.movies.data.update.AppUpdateInfo
+import com.ofc.movies.data.update.UpdateManager
+import com.ofc.movies.ui.components.AppUpdateDialog
 import com.ofc.movies.ui.components.DownloadNavIcon
 import com.ofc.movies.ui.theme.*
+import kotlinx.coroutines.launch
 import java.io.File
 
 private fun calculateCacheSize(context: Context): Long {
@@ -61,7 +66,11 @@ fun ProfileScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val storageManager = remember { StorageManager.getInstance(context) }
+
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var updateInfoToPrompt by remember { mutableStateOf<AppUpdateInfo?>(null) }
 
     var preferredQuality by remember { mutableStateOf(storageManager.getDefaultQuality()) }
     val qualityOptions = listOf("Auto (Best)", "1080P Ultra HD", "720P HD", "480P Data Saver")
@@ -366,10 +375,34 @@ fun ProfileScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "App Version", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
-                    Text(text = "1.0.0 (Latest Release)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Column {
+                        Text(text = "App Version", color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                        Text(text = "v${BuildConfig.VERSION_NAME}", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(
+                        onClick = {
+                            if (isCheckingUpdate) return@TextButton
+                            isCheckingUpdate = true
+                            scope.launch {
+                                val update = UpdateManager.checkForUpdate()
+                                isCheckingUpdate = false
+                                if (update != null) {
+                                    updateInfoToPrompt = update
+                                } else {
+                                    Toast.makeText(context, "You are on the latest version (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = if (isCheckingUpdate) "Checking..." else "Check for Update",
+                            color = PrimaryRed,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -434,6 +467,14 @@ fun ProfileScreen(
                     }
                 },
                 containerColor = DarkCard
+            )
+        }
+
+        // In-App Update Dialog
+        if (updateInfoToPrompt != null) {
+            AppUpdateDialog(
+                updateInfo = updateInfoToPrompt!!,
+                onDismiss = { updateInfoToPrompt = null }
             )
         }
     }

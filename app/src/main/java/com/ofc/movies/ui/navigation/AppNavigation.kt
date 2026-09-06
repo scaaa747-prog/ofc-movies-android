@@ -14,6 +14,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.ofc.movies.data.update.AppUpdateInfo
+import com.ofc.movies.data.update.UpdateManager
+import com.ofc.movies.ui.components.AppUpdateDialog
 import com.ofc.movies.ui.components.BottomNavBar
 import com.ofc.movies.ui.components.NavTab
 import com.ofc.movies.ui.screens.*
@@ -176,6 +179,21 @@ fun MainContainerScreen(
         else -> NavTab.HOME
     }
     var selectedTab by remember(initialTabName) { mutableStateOf(initialNavTab) }
+    var updateInfoToPrompt by remember { mutableStateOf<AppUpdateInfo?>(null) }
+
+    LaunchedEffect(Unit) {
+        val update = UpdateManager.checkForUpdate()
+        if (update != null) {
+            updateInfoToPrompt = update
+        }
+    }
+
+    if (updateInfoToPrompt != null) {
+        AppUpdateDialog(
+            updateInfo = updateInfoToPrompt!!,
+            onDismiss = { updateInfoToPrompt = null }
+        )
+    }
 
     Scaffold(
         containerColor = DarkBackground,
