@@ -57,20 +57,21 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val initialNotif = buildNotification("Preparing download...", 0, 0L, 0L)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                initialNotif,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        try {
+            createNotificationChannel()
+            val initialNotif = buildNotification("Preparing download...", 0, 0L, 0L)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    initialNotif,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                } else {
-                    0
-                }
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, initialNotif)
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, initialNotif)
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("DownloadService", "Failed to start foreground service", e)
         }
 
         startDownloadingQueue()
@@ -91,14 +92,18 @@ class DownloadService : Service() {
 
                 val success = downloadSingleTask(task)
                 if (success) {
-                    val completedNotif = NotificationCompat.Builder(this@DownloadService, CHANNEL_ID)
-                        .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentTitle("OFC Movies")
-                        .setContentText("Downloaded: ${task.displayTitle}")
-                        .setContentIntent(createOpenDownloadsPendingIntent())
-                        .setAutoCancel(true)
-                        .build()
-                    notificationManager.notify(task.id.hashCode(), completedNotif)
+                    try {
+                        val completedNotif = NotificationCompat.Builder(this@DownloadService, CHANNEL_ID)
+                            .setSmallIcon(R.drawable.ic_download_notif)
+                            .setContentTitle("OFC Movies")
+                            .setContentText("Downloaded: ${task.displayTitle}")
+                            .setContentIntent(createOpenDownloadsPendingIntent())
+                            .setAutoCancel(true)
+                            .build()
+                        notificationManager.notify(task.id.hashCode(), completedNotif)
+                    } catch (e: Throwable) {
+                        android.util.Log.e("DownloadService", "Failed to show completed notification", e)
+                    }
                 }
 
                 downloadManager.removeProgress(task.id)
@@ -106,7 +111,9 @@ class DownloadService : Service() {
             }
 
             // All downloads finished
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (e: Throwable) {}
             stopSelf()
         }
     }
@@ -192,7 +199,11 @@ class DownloadService : Service() {
                     downloadManager.updateProgress(task.id, progress)
 
                     val notif = buildNotification(task.displayTitle, percent, totalBytesDownloaded, contentLength)
-                    notificationManager.notify(NOTIFICATION_ID, notif)
+                    try {
+                        notificationManager.notify(NOTIFICATION_ID, notif)
+                    } catch (e: Throwable) {
+                        android.util.Log.e("DownloadService", "Failed to update notification progress", e)
+                    }
                     lastUpdateMs = now
                 }
             }
@@ -239,7 +250,7 @@ class DownloadService : Service() {
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_download_notif)
             .setContentTitle("OFC Movies: $title")
             .setContentText(contentText)
             .setProgress(100, percent, totalBytes <= 0)

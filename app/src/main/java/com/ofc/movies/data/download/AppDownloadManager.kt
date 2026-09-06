@@ -91,9 +91,19 @@ class AppDownloadManager private constructor(private val appContext: Context) {
             taskQueue.add(task)
         }
 
-        // Trigger Foreground DownloadService
-        val intent = Intent(appContext, DownloadService::class.java)
-        ContextCompat.startForegroundService(appContext, intent)
+        // Trigger Foreground DownloadService safely
+        try {
+            val intent = Intent(appContext, DownloadService::class.java)
+            ContextCompat.startForegroundService(appContext, intent)
+        } catch (e: Throwable) {
+            android.util.Log.e("AppDownloadManager", "startForegroundService failed, falling back to startService", e)
+            try {
+                val intent = Intent(appContext, DownloadService::class.java)
+                appContext.startService(intent)
+            } catch (e2: Throwable) {
+                android.util.Log.e("AppDownloadManager", "startService fallback also failed", e2)
+            }
+        }
     }
 
     fun updateProgress(taskId: String, progress: DownloadProgress) {

@@ -46,3 +46,7 @@
 -dontwarn coil.**
 -keep class coil.** { *; }
 
+# Download manager, service, and data classes
+-keep class com.ofc.movies.data.download.** { *; }
+
+

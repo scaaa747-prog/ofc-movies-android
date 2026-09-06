@@ -111,7 +111,8 @@ fun AppNavigation(initialTab: String? = null) {
                 },
                 onGoToDownloads = {
                     navController.navigate(Routes.main("downloads")) {
-                        popUpTo(Routes.MAIN) { inclusive = true }
+                        popUpTo(navController.graph.startDestinationId)
+                        launchSingleTop = true
                     }
                 }
             )

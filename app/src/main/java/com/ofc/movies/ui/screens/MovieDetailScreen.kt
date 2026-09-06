@@ -896,57 +896,65 @@ fun MovieDetailScreen(
                                                     showDownloadSuccessPopup = true
                                                     val epsToDownload = selectedDownloadEpisodes.toList().sorted()
                                                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                                        val tasks = mutableListOf<DownloadTask>()
-                                                        for (ep in epsToDownload) {
-                                                            val epOptions = repository.getDownloadOptions(
-                                                                subjectId = downloadDialogDubId,
-                                                                se = selectedDownloadSeason,
-                                                                ep = ep,
-                                                                preloadedDetail = movieDetail
-                                                            )
-                                                            val match = epOptions.firstOrNull { it.resolution == option.resolution }
-                                                                ?: epOptions.firstOrNull { it.resolution > 0 }
-                                                                ?: epOptions.firstOrNull()
-                                                            if (match != null) {
-                                                                tasks.add(
-                                                                    DownloadTask(
-                                                                        id = "${downloadDialogDubId}_s${selectedDownloadSeason}_e${ep}",
-                                                                        movieId = downloadDialogDubId,
-                                                                        title = detail.title,
-                                                                        displayTitle = "${detail.title} - S${selectedDownloadSeason}E${ep}",
-                                                                        coverUrl = detail.coverUrl,
-                                                                        streamUrl = match.streamUrl,
-                                                                        quality = "${match.resolution}p",
-                                                                        sizeText = match.sizeFormatted,
-                                                                        signCookie = match.signCookie,
-                                                                        season = selectedDownloadSeason,
-                                                                        episode = ep
-                                                                    )
+                                                        try {
+                                                            val tasks = mutableListOf<DownloadTask>()
+                                                            for (ep in epsToDownload) {
+                                                                val epOptions = repository.getDownloadOptions(
+                                                                    subjectId = downloadDialogDubId,
+                                                                    se = selectedDownloadSeason,
+                                                                    ep = ep,
+                                                                    preloadedDetail = movieDetail
                                                                 )
+                                                                val match = epOptions.firstOrNull { it.resolution == option.resolution }
+                                                                    ?: epOptions.firstOrNull { it.resolution > 0 }
+                                                                    ?: epOptions.firstOrNull()
+                                                                if (match != null) {
+                                                                    tasks.add(
+                                                                        DownloadTask(
+                                                                            id = "${downloadDialogDubId}_s${selectedDownloadSeason}_e${ep}",
+                                                                            movieId = downloadDialogDubId,
+                                                                            title = detail.title,
+                                                                            displayTitle = "${detail.title} - S${selectedDownloadSeason}E${ep}",
+                                                                            coverUrl = detail.coverUrl,
+                                                                            streamUrl = match.streamUrl,
+                                                                            quality = "${match.resolution}p",
+                                                                            sizeText = match.sizeFormatted,
+                                                                            signCookie = match.signCookie,
+                                                                            season = selectedDownloadSeason,
+                                                                            episode = ep
+                                                                        )
+                                                                    )
+                                                                }
                                                             }
-                                                        }
-                                                        if (tasks.isNotEmpty()) {
-                                                            downloadManager.enqueueTasks(tasks)
+                                                            if (tasks.isNotEmpty()) {
+                                                                downloadManager.enqueueTasks(tasks)
+                                                            }
+                                                        } catch (e: Throwable) {
+                                                            android.util.Log.e("MovieDetailScreen", "Failed to queue series download", e)
                                                         }
                                                         isMovieDownloaded = true
                                                     }
                                                 } else {
                                                     showDownloadDialog = false
                                                     showDownloadSuccessPopup = true
-                                                    val task = DownloadTask(
-                                                        id = downloadDialogDubId,
-                                                        movieId = downloadDialogDubId,
-                                                        title = detail.title,
-                                                        displayTitle = detail.title,
-                                                        coverUrl = detail.coverUrl,
-                                                        streamUrl = option.streamUrl,
-                                                        quality = "${option.resolution}p",
-                                                        sizeText = option.sizeFormatted,
-                                                        signCookie = option.signCookie,
-                                                        season = 0,
-                                                        episode = 0
-                                                    )
-                                                    downloadManager.enqueueTasks(listOf(task))
+                                                    try {
+                                                        val task = DownloadTask(
+                                                            id = downloadDialogDubId,
+                                                            movieId = downloadDialogDubId,
+                                                            title = detail.title,
+                                                            displayTitle = detail.title,
+                                                            coverUrl = detail.coverUrl,
+                                                            streamUrl = option.streamUrl,
+                                                            quality = "${option.resolution}p",
+                                                            sizeText = option.sizeFormatted,
+                                                            signCookie = option.signCookie,
+                                                            season = 0,
+                                                            episode = 0
+                                                        )
+                                                        downloadManager.enqueueTasks(listOf(task))
+                                                    } catch (e: Throwable) {
+                                                        android.util.Log.e("MovieDetailScreen", "Failed to queue movie download", e)
+                                                    }
                                                     isMovieDownloaded = true
                                                 }
                                             }
