@@ -165,7 +165,7 @@ class MovieRepository(
 
                     // Direct MP4 stream if available
                     val url = s.url ?: s.resourceLink ?: ""
-                    if (url.isNotEmpty() && !url.contains("9a0461bc39da389663bf3dbb17091d3f") && !url.contains("/other/2026/09/01/")) {
+                    if (url.isNotEmpty() && !url.contains("9a0461bc39da389663bf3dbb17091d3f")) {
                         for (rInt in resList) {
                             playable.add(
                                 PlayableStream(
@@ -224,7 +224,7 @@ class MovieRepository(
                                 )
                             }
                         }
-                        if (link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f") && !link.contains("/other/2026/09/01/")) {
+                        if (link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f")) {
                             playable.add(
                                 PlayableStream(
                                     title = "${res}P",
@@ -258,7 +258,7 @@ class MovieRepository(
                 val list = res.data?.list ?: emptyList()
                 val direct = list.firstOrNull { r ->
                     val link = r.resourceLink ?: ""
-                    link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f") && !link.contains("/other/2026/09/01/")
+                    link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f")
                 }
                 if (direct != null && !direct.resourceLink.isNullOrEmpty()) {
                     val resInt = if (direct.resolution > 0) direct.resolution else 720
