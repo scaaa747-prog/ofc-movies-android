@@ -54,7 +54,7 @@ fun HeroBanner(
 
     val currentMovie = featuredMovies.getOrNull(currentIndex) ?: featuredMovies.first()
     val fullCoverUrl = remember(currentMovie.coverUrl) {
-        ApiClient.getAbsoluteUrl(currentMovie.coverUrl)
+        ApiClient.getThumbnailUrl(currentMovie.coverUrl, width = 720)
     }
 
     Box(
@@ -99,16 +99,16 @@ fun HeroBanner(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Badges Row (Dub, Rating, Genre)
+            // Badges Row (Dub / Audio Language, Rating, Genre)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(bottom = 6.dp)
             ) {
-                val corner = currentMovie.cornerText
-                if (!corner.isNullOrBlank()) {
+                val audioLang = currentMovie.audioLanguage
+                if (!audioLang.isNullOrBlank()) {
                     Text(
-                        text = corner,
+                        text = audioLang,
                         style = MaterialTheme.typography.labelSmall,
                         color = TextPrimary,
                         modifier = Modifier
@@ -138,17 +138,16 @@ fun HeroBanner(
 
                 if (!currentMovie.genre.isNullOrBlank()) {
                     Text(
-                        text = currentMovie.genre.split(",").take(2).joinToString(" • "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 1
+                        text = currentMovie.genre.split(",").firstOrNull()?.trim() ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
                     )
                 }
             }
 
             // Cinematic Headline Title (Condensed, tight letter spacing, bold)
             Text(
-                text = currentMovie.title,
+                text = currentMovie.displayTitle,
                 style = MaterialTheme.typography.headlineLarge,
                 textAlign = TextAlign.Center,
                 maxLines = 2,

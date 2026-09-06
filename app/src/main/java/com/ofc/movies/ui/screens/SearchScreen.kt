@@ -52,17 +52,18 @@ fun SearchScreen(
 
     val genres = listOf("Action", "Comedy", "Sci-Fi", "Drama", "Animation", "Horror", "Thriller")
 
-    // Debounced search
+    // Debounced search with low-bandwidth optimization
     LaunchedEffect(query) {
-        if (query.trim().isEmpty()) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
             searchResults = emptyList()
             isLoading = false
             return@LaunchedEffect
         }
+        delay(500) // 500ms debounce to prevent excessive network consumption
         isLoading = true
         searchError = null
-        delay(400) // 400ms debounce
-        val res = repository.searchMovies(query.trim())
+        val res = repository.searchMovies(trimmed)
         res.onSuccess { items ->
             searchResults = items
         }.onFailure { err ->

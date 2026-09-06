@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,7 +54,7 @@ fun MovieCard(
     )
 
     val fullCoverUrl = remember(movie.coverUrl) {
-        ApiClient.getAbsoluteUrl(movie.coverUrl)
+        ApiClient.getThumbnailUrl(movie.coverUrl, width = 240)
     }
 
     val widthMod = if (width != null) Modifier.width(width) else Modifier.fillMaxWidth()
@@ -96,7 +97,7 @@ fun MovieCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = movie.title.take(1),
+                            text = movie.displayTitle.take(1),
                             style = MaterialTheme.typography.titleMedium,
                             color = TextMuted
                         )
@@ -146,34 +147,63 @@ fun MovieCard(
                 }
             }
 
-            // Top-right Dub / Corner Badge (e.g. "Hindi", "4K")
-            val corner = movie.cornerText
-            if (!corner.isNullOrBlank()) {
-                Box(
+            // Top-right Audio Language & Quality Badges (No fake 4k tags)
+            val audioLang = movie.audioLanguage
+            val isCam = movie.isCamFilm
+
+            if (!audioLang.isNullOrBlank() || isCam) {
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .background(
-                            color = PrimaryRed.copy(alpha = 0.90f),
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                        .padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = corner,
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 9.sp
-                    )
+                    if (isCam) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = Color(0xFFE65100).copy(alpha = 0.95f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "CAM",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    if (!audioLang.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = PrimaryRed.copy(alpha = 0.90f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = audioLang,
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Title text (Bold, condensed typography, max 1 line with ellipsis)
+        // Title text (Clean display title with bold typography)
         Text(
-            text = movie.title,
+            text = movie.displayTitle,
             style = MaterialTheme.typography.labelLarge,
             color = TextPrimary,
             maxLines = 1,

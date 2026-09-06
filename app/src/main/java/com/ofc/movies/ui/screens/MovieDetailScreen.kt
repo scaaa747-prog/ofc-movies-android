@@ -164,7 +164,7 @@ fun MovieDetailScreen(
         } else {
             val detail = movieDetail ?: return@Box
             val context = LocalContext.current
-            val coverUrl = ApiClient.getAbsoluteUrl(detail.coverUrl)
+            val coverUrl = ApiClient.getThumbnailUrl(detail.coverUrl, width = 720)
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -279,17 +279,37 @@ fun MovieDetailScreen(
                                 }
                             }
 
-                            // Quality Badge
+                            // Quality Badge (Accurate quality, no fake 4K)
+                            val qualityText = when {
+                                detail.isCamFilm -> "CAM"
+                                else -> "HD"
+                            }
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
                                 color = DarkSurfaceElevated
                             ) {
                                 Text(
-                                    text = "4K ULTRA HD",
-                                    color = TextSecondary,
+                                    text = qualityText,
+                                    color = if (detail.isCamFilm) Color(0xFFFF9800) else TextSecondary,
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                 )
+                            }
+
+                            // Audio Language Badge
+                            val detailAudioLang = detail.audioLanguage
+                            if (!detailAudioLang.isNullOrBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = PrimaryRed.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = detailAudioLang,
+                                        color = PrimaryRed,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -612,7 +632,7 @@ fun MovieDetailScreen(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier.width(72.dp)
                                     ) {
-                                        val avatar = ApiClient.getAbsoluteUrl(person.avatarUrl ?: "")
+                                        val avatar = ApiClient.getThumbnailUrl(person.avatarUrl ?: "", width = 120)
                                         if (avatar.isNotEmpty()) {
                                             AsyncImage(
                                                 model = avatar,

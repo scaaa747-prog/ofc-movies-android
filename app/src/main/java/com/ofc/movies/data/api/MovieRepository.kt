@@ -80,7 +80,20 @@ class MovieRepository(
         }
     }
 
+    companion object {
+        // LRU memory cache for searches to avoid consuming internet on repeated queries or backspaces
+        private val searchCache = android.util.LruCache<String, List<MovieItem>>(100)
+    }
+
     suspend fun searchMovies(query: String, page: Int = 1): Result<List<MovieItem>> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim().lowercase()
+        val cacheKey = "${trimmed}_p$page"
+        if (page == 1) {
+            val cached = searchCache.get(cacheKey)
+            if (cached != null) {
+                return@withContext Result.success(cached)
+            }
+        }
         try {
             val response = api.search(
                 SearchRequestBody(
@@ -91,6 +104,9 @@ class MovieRepository(
                 )
             )
             val items = response.data?.items?.filter { isAllowed(it) } ?: emptyList()
+            if (items.isNotEmpty()) {
+                searchCache.put(cacheKey, items)
+            }
             Result.success(items)
         } catch (e: Exception) {
             Result.failure(e)

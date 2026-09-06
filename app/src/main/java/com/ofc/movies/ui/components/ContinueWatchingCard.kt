@@ -52,7 +52,7 @@ fun ContinueWatchingCard(
     )
 
     val fullCoverUrl = remember(item.coverUrl) {
-        ApiClient.getAbsoluteUrl(item.coverUrl)
+        ApiClient.getThumbnailUrl(item.coverUrl, width = 360)
     }
 
     Column(

@@ -2,6 +2,35 @@ package com.ofc.movies.data.model
 
 import com.google.gson.annotations.SerializedName
 
+private val TITLE_LANG_REGEX = Regex("""\[([^\]]+)\]|\(([^\)]+)\)""")
+
+private val KNOWN_LANGUAGES = listOf(
+    "Hindi", "Tamil", "Telugu", "Kannada", "Malayalam", "Bengali", "Marathi",
+    "Punjabi", "Gujarati", "Bhojpuri", "Urdu", "English", "Spanish", "French",
+    "German", "Italian", "Korean", "Japanese", "Chinese", "Turkish", "Arabic",
+    "Thai", "Vietnamese", "Indonesian", "Dual Audio", "Multi Audio", "Dual", "Multi"
+)
+
+private fun isIgnoredCornerTag(tag: String?): Boolean {
+    if (tag.isNullOrBlank()) return true
+    val lower = tag.trim().lowercase()
+    return lower in listOf("4k", "4k uhd", "uhd", "free", "vip", "new", "hot")
+}
+
+private fun matchKnownLanguage(text: String?): String? {
+    if (text.isNullOrBlank()) return null
+    val clean = text.trim()
+    val lower = clean.lowercase()
+    if (lower.contains("dual")) return "Dual Audio"
+    if (lower.contains("multi")) return "Multi Audio"
+    for (lang in KNOWN_LANGUAGES) {
+        if (lower.contains(lang.lowercase())) {
+            return lang
+        }
+    }
+    return null
+}
+
 data class MovieItem(
     @SerializedName("subjectId", alternate = ["id"])
     val id: String = "",
@@ -24,8 +53,20 @@ data class MovieItem(
     @SerializedName("description", alternate = ["desc", "synopsis", "introduction"])
     val description: String? = null,
 
-    @SerializedName("corner", alternate = ["cornerBadge"])
+    @SerializedName("corner")
     val corner: Any? = null,
+
+    @SerializedName("cornerBadge")
+    val cornerBadge: Any? = null,
+
+    @SerializedName("language")
+    val language: String? = null,
+
+    @SerializedName("dubs")
+    val dubs: List<DubItem> = emptyList(),
+
+    @SerializedName("isCam")
+    val isCam: Boolean? = null,
 
     @SerializedName("duration", alternate = ["durationSeconds"])
     val duration: Any? = null,
@@ -44,13 +85,67 @@ data class MovieItem(
 
     val cornerText: String?
         get() = when (corner) {
-            is String -> corner
-            is Map<*, *> -> (corner["text"] as? String)
+            is String -> corner.takeIf { it.isNotBlank() }
+            is Map<*, *> -> (corner["text"] as? String)?.takeIf { it.isNotBlank() }
             else -> null
         }
 
     val displayYear: String
         get() = year?.take(4) ?: ""
+
+    val isCamFilm: Boolean
+        get() {
+            if (isCam == true) return true
+            val t = title.lowercase()
+            return t.contains("[cam]") || t.contains("(cam)") || t.contains("cam-rip") || t.contains("hdcam")
+        }
+
+    val audioLanguage: String?
+        get() {
+            // 1. Title bracket match (e.g. [Hindi], [Tamil], [English], [Dual Audio])
+            val bracketMatch = TITLE_LANG_REGEX.find(title)
+            if (bracketMatch != null) {
+                val candidate = (bracketMatch.groupValues[1].ifEmpty { bracketMatch.groupValues.getOrNull(2) ?: "" }).trim()
+                val matched = matchKnownLanguage(candidate)
+                if (matched != null) return matched
+            }
+
+            // 2. Corner text from API (excluding fake 4K and promotional tags)
+            val c = cornerText?.trim()
+            if (!c.isNullOrBlank() && !isIgnoredCornerTag(c)) {
+                val matched = matchKnownLanguage(c)
+                if (matched != null) return matched
+                if (c.length <= 12) return c
+            }
+
+            // 3. Dubs list
+            val firstDub = dubs.firstOrNull()?.lanName?.trim()
+            if (!firstDub.isNullOrBlank()) {
+                val matched = matchKnownLanguage(firstDub)
+                if (matched != null) return matched
+                if (firstDub.length <= 12) return firstDub
+            }
+
+            // 4. API language field
+            val lang = language?.trim()
+            if (!lang.isNullOrBlank()) {
+                val firstLang = lang.split(',').firstOrNull()?.trim()
+                if (!firstLang.isNullOrBlank()) {
+                    return matchKnownLanguage(firstLang) ?: firstLang.take(12)
+                }
+            }
+
+            return null
+        }
+
+    val displayTitle: String
+        get() {
+            return title
+                .replace(Regex("""\[(Hindi|Tamil|Telugu|Kannada|Malayalam|English|Dual|Multi|CAM|TS|HD-TC|HDCAM)[^\]]*\]""", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("""\s+"""), " ")
+                .trim()
+                .ifEmpty { title }
+        }
 
     val isExplicitAdult: Boolean
         get() {
@@ -163,6 +258,15 @@ data class MovieDetailData(
     @SerializedName("staffList")
     val cast: List<CastItem> = emptyList(),
 
+    @SerializedName("language")
+    val language: String? = null,
+
+    @SerializedName("corner")
+    val corner: Any? = null,
+
+    @SerializedName("isCam")
+    val isCam: Boolean? = null,
+
     @SerializedName("subjectType")
     val rawSubjectType: Any? = null
 ) {
@@ -185,6 +289,51 @@ data class MovieDetailData(
             is Number -> rawSubjectType.toInt()
             is String -> rawSubjectType.toIntOrNull() ?: 0
             else -> 0
+        }
+
+    val isCamFilm: Boolean
+        get() {
+            if (isCam == true) return true
+            val t = title.lowercase()
+            return t.contains("[cam]") || t.contains("(cam)") || t.contains("cam-rip") || t.contains("hdcam")
+        }
+
+    val audioLanguage: String?
+        get() {
+            val bracketMatch = TITLE_LANG_REGEX.find(title)
+            if (bracketMatch != null) {
+                val candidate = (bracketMatch.groupValues[1].ifEmpty { bracketMatch.groupValues.getOrNull(2) ?: "" }).trim()
+                val matched = matchKnownLanguage(candidate)
+                if (matched != null) return matched
+            }
+
+            val c = when (corner) {
+                is String -> corner.takeIf { it.isNotBlank() }
+                is Map<*, *> -> (corner["text"] as? String)?.takeIf { it.isNotBlank() }
+                else -> null
+            }
+            if (!c.isNullOrBlank() && !isIgnoredCornerTag(c)) {
+                val matched = matchKnownLanguage(c)
+                if (matched != null) return matched
+                if (c.length <= 12) return c
+            }
+
+            val firstDub = dubs.firstOrNull()?.lanName?.trim()
+            if (!firstDub.isNullOrBlank()) {
+                val matched = matchKnownLanguage(firstDub)
+                if (matched != null) return matched
+                if (firstDub.length <= 12) return firstDub
+            }
+
+            val lang = language?.trim()
+            if (!lang.isNullOrBlank()) {
+                val firstLang = lang.split(',').firstOrNull()?.trim()
+                if (!firstLang.isNullOrBlank()) {
+                    return matchKnownLanguage(firstLang) ?: firstLang.take(12)
+                }
+            }
+
+            return null
         }
 }
 
