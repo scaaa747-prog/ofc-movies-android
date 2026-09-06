@@ -194,6 +194,18 @@ fun VideoPlayerScreen(
                     try { dm?.remove(downloadedItem.downloadId) } catch (e: Exception) {}
                 }
                 storageManager.removeDownload(downloadedItem.id)
+            } else if (downloadedItem.localUri.isNotEmpty()) {
+                try {
+                    val localUri = Uri.parse(downloadedItem.localUri)
+                    val mediaItem = MediaItem.fromUri(localUri)
+                    exoPlayer.setMediaItem(mediaItem)
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                    isLoadingStreams = false
+                    localPlaySuccess = true
+                } catch (e: Exception) {
+                    // Fallback
+                }
             } else if (downloadedItem.downloadId > 0L) {
                 try {
                     val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager

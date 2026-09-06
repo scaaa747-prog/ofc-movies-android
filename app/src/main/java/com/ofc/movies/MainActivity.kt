@@ -13,13 +13,14 @@ import com.ofc.movies.ui.theme.OFCMoviesTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val openTab = intent?.getStringExtra("open_tab")
         setContent {
             OFCMoviesTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = DarkBackground
                 ) {
-                    AppNavigation()
+                    AppNavigation(initialTab = openTab)
                 }
             }
         }

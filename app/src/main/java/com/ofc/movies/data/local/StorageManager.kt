@@ -15,7 +15,9 @@ data class DownloadedItem(
     val quality: String,
     val downloadTimeMs: Long,
     val streamUrl: String,
-    val downloadId: Long = -1L
+    val downloadId: Long = -1L,
+    val localUri: String = "",
+    val status: String = "Ready"
 )
 
 class StorageManager private constructor(context: Context) {
@@ -100,6 +102,20 @@ class StorageManager private constructor(context: Context) {
         val list = getDownloads().toMutableList()
         list.removeAll { it.id == id }
         prefs.edit().putString("downloads", gson.toJson(list)).apply()
+    }
+
+    fun updateDownloadStatus(id: String, status: String, localUri: String? = null, sizeText: String? = null) {
+        val list = getDownloads().toMutableList()
+        val index = list.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            val item = list[index]
+            list[index] = item.copy(
+                status = status,
+                localUri = localUri ?: item.localUri,
+                sizeText = sizeText ?: item.sizeText
+            )
+            prefs.edit().putString("downloads", gson.toJson(list)).apply()
+        }
     }
 
     // ==========================================

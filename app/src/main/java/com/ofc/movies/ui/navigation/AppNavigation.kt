@@ -22,11 +22,12 @@ import com.ofc.movies.ui.theme.DarkBackground
 object Routes {
     const val SPLASH = "splash"
     const val ONBOARDING = "onboarding"
-    const val MAIN = "main"
+    const val MAIN = "main?tab={tab}"
     const val DETAIL = "detail/{movieId}"
     const val PLAYER = "player/{movieId}/{title}/{se}/{ep}"
     const val CATEGORY = "category/{categoryName}"
 
+    fun main(tab: String? = null): String = if (tab != null) "main?tab=$tab" else "main"
     fun detail(movieId: String): String = "detail/$movieId"
     fun player(movieId: String, title: String, se: Int = 0, ep: Int = 0): String {
         val encTitle = Uri.encode(title)
@@ -39,7 +40,7 @@ object Routes {
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(initialTab: String? = null) {
     val navController = rememberNavController()
 
     NavHost(
@@ -49,7 +50,7 @@ fun AppNavigation() {
         composable(Routes.SPLASH) {
             SplashScreen(
                 onSplashFinished = { isOnboardingCompleted ->
-                    val destination = if (isOnboardingCompleted) Routes.MAIN else Routes.ONBOARDING
+                    val destination = if (isOnboardingCompleted) Routes.main(initialTab) else Routes.ONBOARDING
                     navController.navigate(destination) {
                         popUpTo(Routes.SPLASH) { inclusive = true }
                     }
@@ -60,15 +61,26 @@ fun AppNavigation() {
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onFinished = {
-                    navController.navigate(Routes.MAIN) {
+                    navController.navigate(Routes.main(initialTab)) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                     }
                 }
             )
         }
 
-        composable(Routes.MAIN) {
+        composable(
+            route = Routes.MAIN,
+            arguments = listOf(
+                navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val tab = backStackEntry.arguments?.getString("tab") ?: initialTab
             MainContainerScreen(
+                initialTabName = tab,
                 onMovieClick = { movie ->
                     navController.navigate(Routes.detail(movie.id))
                 },
@@ -96,6 +108,11 @@ fun AppNavigation() {
                 },
                 onRelatedMovieClick = { relatedMovie ->
                     navController.navigate(Routes.detail(relatedMovie.id))
+                },
+                onGoToDownloads = {
+                    navController.navigate(Routes.main("downloads")) {
+                        popUpTo(Routes.MAIN) { inclusive = true }
+                    }
                 }
             )
         }
@@ -145,11 +162,19 @@ fun AppNavigation() {
 
 @Composable
 fun MainContainerScreen(
+    initialTabName: String? = null,
     onMovieClick: (com.ofc.movies.data.model.MovieItem) -> Unit,
     onCategoryClick: (String) -> Unit,
     onPlayOffline: (movieId: String, title: String) -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(NavTab.HOME) }
+    val initialNavTab = when (initialTabName?.lowercase()) {
+        "downloads" -> NavTab.DOWNLOADS
+        "search" -> NavTab.SEARCH
+        "mylist" -> NavTab.MY_LIST
+        "profile" -> NavTab.PROFILE
+        else -> NavTab.HOME
+    }
+    var selectedTab by remember(initialTabName) { mutableStateOf(initialNavTab) }
 
     Scaffold(
         containerColor = DarkBackground,

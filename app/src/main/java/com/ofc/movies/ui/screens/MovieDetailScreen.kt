@@ -39,6 +39,8 @@ import coil.request.ImageRequest
 import com.ofc.movies.data.api.ApiClient
 import com.ofc.movies.data.api.MovieBoxSigner
 import com.ofc.movies.data.api.MovieRepository
+import com.ofc.movies.data.download.AppDownloadManager
+import com.ofc.movies.data.download.DownloadTask
 import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.*
@@ -53,11 +55,13 @@ fun MovieDetailScreen(
     onBackClick: () -> Unit,
     onPlayClick: (movieId: String, title: String, se: Int, ep: Int) -> Unit,
     onRelatedMovieClick: (MovieItem) -> Unit,
+    onGoToDownloads: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val storageManager = remember { StorageManager.getInstance(context) }
     val repository = remember { MovieRepository(storageManager = storageManager) }
+    val downloadManager = remember { AppDownloadManager.getInstance(context) }
     val scope = rememberCoroutineScope()
 
     var movieDetail by remember { mutableStateOf<MovieDetailData?>(null) }
@@ -74,6 +78,7 @@ fun MovieDetailScreen(
     var isMovieDownloaded by remember { mutableStateOf(storageManager.isDownloaded(movieId)) }
 
     var showDownloadDialog by remember { mutableStateOf(false) }
+    var showDownloadSuccessPopup by remember { mutableStateOf(false) }
     var downloadOptions by remember { mutableStateOf<List<DownloadQualityOption>>(emptyList()) }
     var isFetchingDownloadOptions by remember { mutableStateOf(false) }
     var selectedDownloadSeason by remember { mutableIntStateOf(1) }
@@ -888,13 +893,10 @@ fun MovieDetailScreen(
                                             .clickable {
                                                 if (isSeries) {
                                                     showDownloadDialog = false
+                                                    showDownloadSuccessPopup = true
                                                     val epsToDownload = selectedDownloadEpisodes.toList().sorted()
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Starting ${epsToDownload.size} download(s)...",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
                                                     scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                        val tasks = mutableListOf<DownloadTask>()
                                                         for (ep in epsToDownload) {
                                                             val epOptions = repository.getDownloadOptions(
                                                                 subjectId = downloadDialogDubId,
@@ -906,46 +908,46 @@ fun MovieDetailScreen(
                                                                 ?: epOptions.firstOrNull { it.resolution > 0 }
                                                                 ?: epOptions.firstOrNull()
                                                             if (match != null) {
-                                                                startSingleDownload(
-                                                                    context = context,
-                                                                    storageManager = storageManager,
-                                                                    movieId = downloadDialogDubId,
-                                                                    title = detail.title,
-                                                                    streamUrl = match.streamUrl,
-                                                                    quality = "${match.resolution}p",
-                                                                    se = selectedDownloadSeason,
-                                                                    ep = ep,
-                                                                    coverUrl = detail.coverUrl,
-                                                                    fileSizeText = match.sizeFormatted,
-                                                                    signCookie = match.signCookie
+                                                                tasks.add(
+                                                                    DownloadTask(
+                                                                        id = "${downloadDialogDubId}_s${selectedDownloadSeason}_e${ep}",
+                                                                        movieId = downloadDialogDubId,
+                                                                        title = detail.title,
+                                                                        displayTitle = "${detail.title} - S${selectedDownloadSeason}E${ep}",
+                                                                        coverUrl = detail.coverUrl,
+                                                                        streamUrl = match.streamUrl,
+                                                                        quality = "${match.resolution}p",
+                                                                        sizeText = match.sizeFormatted,
+                                                                        signCookie = match.signCookie,
+                                                                        season = selectedDownloadSeason,
+                                                                        episode = ep
+                                                                    )
                                                                 )
                                                             }
                                                         }
-                                                        isMovieDownloaded = storageManager.isDownloaded(movieId)
+                                                        if (tasks.isNotEmpty()) {
+                                                            downloadManager.enqueueTasks(tasks)
+                                                        }
+                                                        isMovieDownloaded = true
                                                     }
                                                 } else {
-                                                    val ok = startSingleDownload(
-                                                        context = context,
-                                                        storageManager = storageManager,
+                                                    showDownloadDialog = false
+                                                    showDownloadSuccessPopup = true
+                                                    val task = DownloadTask(
+                                                        id = downloadDialogDubId,
                                                         movieId = downloadDialogDubId,
                                                         title = detail.title,
+                                                        displayTitle = detail.title,
+                                                        coverUrl = detail.coverUrl,
                                                         streamUrl = option.streamUrl,
                                                         quality = "${option.resolution}p",
-                                                        se = 0,
-                                                        ep = 0,
-                                                        coverUrl = detail.coverUrl,
-                                                        fileSizeText = option.sizeFormatted,
-                                                        signCookie = option.signCookie
+                                                        sizeText = option.sizeFormatted,
+                                                        signCookie = option.signCookie,
+                                                        season = 0,
+                                                        episode = 0
                                                     )
-                                                    if (ok) {
-                                                        isMovieDownloaded = true
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Download started: ${detail.title} (${option.resolution}p)",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    }
-                                                    showDownloadDialog = false
+                                                    downloadManager.enqueueTasks(listOf(task))
+                                                    isMovieDownloaded = true
                                                 }
                                             }
                                     ) {
@@ -996,6 +998,63 @@ fun MovieDetailScreen(
             )
         }
 
+        // ==========================================
+        // DOWNLOAD STARTED SUCCESS POPUP (WITH GO TO DOWNLOADS BUTTON)
+        // ==========================================
+        if (showDownloadSuccessPopup && movieDetail != null) {
+            val detail = movieDetail!!
+            val isSeries = detail.subjectType == 2 && seasons.isNotEmpty()
+
+            AlertDialog(
+                onDismissRequest = { showDownloadSuccessPopup = false },
+                containerColor = DarkSurfaceElevated,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF4CAF50),
+                        modifier = Modifier.size(38.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Download Started",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = TextPrimary
+                    )
+                },
+                text = {
+                    Text(
+                        text = if (isSeries) {
+                            "Downloading ${selectedDownloadEpisodes.size} episode(s) one by one in the background. Video files will be saved in Downloads/ofcmovies."
+                        } else {
+                            "Downloading '${detail.title}' in the background. Video file will be saved in Downloads/ofcmovies."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        lineHeight = 20.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDownloadSuccessPopup = false
+                            onGoToDownloads()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                        shape = PillShape
+                    ) {
+                        Text(text = "Go to Downloads", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDownloadSuccessPopup = false }) {
+                        Text(text = "Dismiss", color = TextSecondary)
+                    }
+                }
+            )
+        }
+
         // Floating Back Button (Top Left)
         IconButton(
             onClick = onBackClick,
@@ -1016,76 +1075,3 @@ fun MovieDetailScreen(
     }
 }
 
-private fun startSingleDownload(
-    context: Context,
-    storageManager: StorageManager,
-    movieId: String,
-    title: String,
-    streamUrl: String,
-    quality: String,
-    se: Int = 0,
-    ep: Int = 0,
-    coverUrl: String = "",
-    fileSizeText: String = "",
-    signCookie: String? = null
-): Boolean {
-    return try {
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-        if (dm == null) {
-            return false
-        }
-        val safeTitle = title.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
-        val fileName = if (se > 0 && ep > 0) {
-            "${safeTitle}_S${se}E${ep}_${quality}.mp4"
-        } else if (ep > 0) {
-            "${safeTitle}_EP${ep}_${quality}.mp4"
-        } else {
-            "${safeTitle}_${quality}.mp4"
-        }
-
-        val request = DownloadManager.Request(Uri.parse(streamUrl)).apply {
-            setTitle(if (se > 0 && ep > 0) "$title (S${se}E${ep})" else title)
-            setDescription("Downloading $quality video")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            addRequestHeader("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
-            addRequestHeader("Referer", "https://h5.aoneroom.com/")
-            if (!signCookie.isNullOrBlank()) {
-                addRequestHeader("Cookie", signCookie)
-            }
-        }
-        val downloadId = dm.enqueue(request)
-
-        val itemId = if (se > 0 && ep > 0) {
-            "${movieId}_s${se}_e${ep}"
-        } else if (ep > 0) {
-            "${movieId}_ep${ep}"
-        } else {
-            movieId
-        }
-
-        val displayTitle = if (se > 0 && ep > 0) {
-            "$title - S${se}E${ep}"
-        } else if (ep > 0) {
-            "$title - EP $ep"
-        } else {
-            title
-        }
-
-        storageManager.addDownload(
-            DownloadedItem(
-                id = itemId,
-                title = displayTitle,
-                coverUrl = coverUrl,
-                sizeText = fileSizeText.ifEmpty { quality },
-                quality = quality,
-                downloadTimeMs = System.currentTimeMillis(),
-                streamUrl = streamUrl,
-                downloadId = downloadId
-            )
-        )
-        true
-    } catch (e: Exception) {
-        false
-    }
-}

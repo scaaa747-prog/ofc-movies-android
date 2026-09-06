@@ -2,8 +2,10 @@ package com.ofc.movies.ui.screens
 
 import android.app.DownloadManager
 import android.content.Context
+import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,11 +28,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.ofc.movies.data.api.MovieBoxSigner
+import com.ofc.movies.data.download.AppDownloadManager
 import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.ui.components.DownloadNavIcon
 import com.ofc.movies.ui.theme.*
 import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun DownloadsScreen(
@@ -40,6 +44,8 @@ fun DownloadsScreen(
 ) {
     val context = LocalContext.current
     val storageManager = remember { StorageManager.getInstance(context) }
+    val appDownloadManager = remember { AppDownloadManager.getInstance(context) }
+    val inAppProgressMap by appDownloadManager.progressMap.collectAsState()
 
     var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
     var downloadStatuses by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
@@ -61,9 +67,10 @@ fun DownloadsScreen(
     }
 
     // Periodically refresh real download statuses
-    LaunchedEffect(downloads) {
+    LaunchedEffect(Unit) {
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
         while (true) {
+            downloads = storageManager.getDownloads()
             if (dm != null && downloads.isNotEmpty()) {
                 val map = mutableMapOf<Long, String>()
                 downloads.forEach { item ->
@@ -97,7 +104,7 @@ fun DownloadsScreen(
                 }
                 downloadStatuses = map
             }
-            delay(2000)
+            delay(1500)
         }
     }
 
@@ -254,12 +261,28 @@ fun DownloadsScreen(
                                 .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val inApp = inAppProgressMap[item.id]
+                            val status = when {
+                                inApp != null -> {
+                                    if (inApp.status == "Downloading" && inApp.percentage > 0) "${inApp.percentage}%" else inApp.status
+                                }
+                                item.status.isNotEmpty() && item.status != "Ready" -> item.status
+                                downloadStatuses[item.downloadId] != null -> downloadStatuses[item.downloadId]!!
+                                else -> item.status.ifEmpty { "Ready" }
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .clip(CircleShape)
-                                    .background(PrimaryRed)
-                                    .clickable { onPlayOffline(item.id, item.title) },
+                                    .background(if (status.contains("%") || status == "Queued" || status == "Downloading") DarkCard else PrimaryRed)
+                                    .clickable {
+                                        if (status.contains("%") || status == "Queued" || status == "Downloading") {
+                                            Toast.makeText(context, "Download in progress. Please wait until ready.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            onPlayOffline(item.id, item.title)
+                                        }
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -280,7 +303,6 @@ fun DownloadsScreen(
                                     maxLines = 1
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                val status = downloadStatuses[item.downloadId] ?: "Ready"
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = item.quality,
@@ -305,13 +327,14 @@ fun DownloadsScreen(
                                     Text(
                                         text = status,
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = if (status.contains("%") || status == "Queued") PrimaryRed else Color(0xFF4CAF50)
+                                        color = if (status.contains("%") || status == "Queued" || status == "Downloading") PrimaryRed else Color(0xFF4CAF50)
                                     )
                                 }
                             }
 
                             IconButton(
                                 onClick = {
+                                    appDownloadManager.cancelTask(item.id)
                                     val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
                                     if (item.downloadId > 0L) {
                                         try {
@@ -319,6 +342,16 @@ fun DownloadsScreen(
                                         } catch (e: Exception) {
                                             // ignore
                                         }
+                                    }
+                                    if (item.localUri.isNotEmpty()) {
+                                        try {
+                                            val uri = Uri.parse(item.localUri)
+                                            if (uri.scheme == "content") {
+                                                context.contentResolver.delete(uri, null, null)
+                                            } else if (uri.scheme == "file") {
+                                                File(uri.path ?: "").delete()
+                                            }
+                                        } catch (e: Exception) {}
                                     }
                                     storageManager.removeDownload(item.id)
                                     downloads = storageManager.getDownloads()
