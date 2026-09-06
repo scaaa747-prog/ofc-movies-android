@@ -1,5 +1,6 @@
 package com.ofc.movies.data.api
 
+import android.util.Log
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.*
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +123,16 @@ class MovieRepository(
                 }
 
                 val playable = mutableListOf<PlayableStream>()
+
+                Log.d("STREAMS", "=== RAW STREAMS for subjectId=$subjectId se=$se ep=$ep count=${streams.size} ===")
+                for (s in streams) {
+                    Log.d("STREAMS", "  url=${s.url}")
+                    Log.d("STREAMS", "  dashUrl=${s.dashUrl}")
+                    Log.d("STREAMS", "  resourceLink=${s.resourceLink}")
+                    Log.d("STREAMS", "  resolutions=${s.resolutions} resolution=${s.resolution}")
+                    Log.d("STREAMS", "  signCookie=${if (!s.signCookie.isNullOrEmpty()) "HAS_COOKIE(${s.signCookie!!.length}chars)" else "NONE"}")
+                    Log.d("STREAMS", "  ---")
+                }
 
                 for (s in streams) {
                     val cookie = s.signCookie ?: ""
