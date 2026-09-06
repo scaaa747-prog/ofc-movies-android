@@ -188,14 +188,27 @@ fun VideoPlayerScreen(
         val downloadedItem = storageManager.getDownloads().firstOrNull { it.id == targetId }
             ?: storageManager.getDownloads().firstOrNull { it.id == movieId }
         var localPlaySuccess = false
-        if (downloadedItem != null) {
-            if (MovieBoxSigner.isFakeClipUrl(downloadedItem.streamUrl)) {
-                // Remove corrupted fake promo download from storage
-                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                if (downloadedItem.downloadId > 0L) {
-                    try { dm?.remove(downloadedItem.downloadId) } catch (e: Exception) {}
+        if (downloadedItem != null && downloadedItem.status == "Ready") {
+            if (downloadedItem.localUri.startsWith("cache://") || downloadedItem.streamUrl.contains(".mpd")) {
+                try {
+                    val stream = PlayableStream(
+                        title = downloadedItem.title,
+                        resolution = 720,
+                        codecName = "hevc",
+                        size = 0L,
+                        duration = 0L,
+                        streamUrl = downloadedItem.streamUrl,
+                        isDash = downloadedItem.streamUrl.contains(".mpd"),
+                        signCookie = null,
+                        season = season,
+                        episode = episode
+                    )
+                    playStream(exoPlayer, stream)
+                    isLoadingStreams = false
+                    localPlaySuccess = true
+                } catch (e: Exception) {
+                    // Fallback to online streams
                 }
-                storageManager.removeDownload(downloadedItem.id)
             } else if (downloadedItem.localUri.isNotEmpty()) {
                 try {
                     val localUri = Uri.parse(downloadedItem.localUri)
@@ -220,9 +233,7 @@ fun VideoPlayerScreen(
                         isLoadingStreams = false
                         localPlaySuccess = true
                     }
-                } catch (e: Exception) {
-                    // Fallback to streaming
-                }
+                } catch (e: Exception) {}
             }
         }
 
@@ -736,21 +747,10 @@ private fun playStream(player: ExoPlayer, stream: PlayableStream, seekToMs: Long
     player.stop()
     player.clearMediaItems()
 
-    val cleanCookie = stream.signCookie?.trim()?.trimEnd(';') ?: ""
-    val headers = mutableMapOf(
-        "User-Agent" to MovieBoxSigner.ANDROID_USER_AGENT,
-        "Referer" to "https://www.movieboxpro.app/"
+    val dataSourceFactory = com.ofc.movies.data.download.DownloadCacheManager.createCacheDataSourceFactory(
+        player.applicationContext,
+        stream.signCookie
     )
-    if (cleanCookie.isNotEmpty()) {
-        headers["Cookie"] = cleanCookie
-    }
-
-    val dataSourceFactory = DefaultHttpDataSource.Factory()
-        .setUserAgent(MovieBoxSigner.ANDROID_USER_AGENT)
-        .setAllowCrossProtocolRedirects(true)
-        .setConnectTimeoutMs(20000)
-        .setReadTimeoutMs(25000)
-        .setDefaultRequestProperties(headers)
 
     val mediaItem = MediaItem.Builder()
         .setUri(stream.streamUrl)

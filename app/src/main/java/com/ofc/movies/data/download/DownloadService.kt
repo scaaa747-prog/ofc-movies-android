@@ -23,11 +23,18 @@ import com.ofc.movies.data.model.formatDownloadSize
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import androidx.annotation.OptIn
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.dash.offline.DashDownloader
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+@OptIn(UnstableApi::class)
 class DownloadService : Service() {
 
     private val serviceJob = SupervisorJob()
@@ -143,6 +150,87 @@ class DownloadService : Service() {
     }
 
     private fun downloadSingleTask(task: DownloadTask): Boolean {
+        if (task.streamUrl.contains(".mpd")) {
+            return downloadDashTask(task)
+        }
+        return downloadProgressiveTask(task)
+    }
+
+    private fun downloadDashTask(task: DownloadTask): Boolean {
+        val executor = Executors.newFixedThreadPool(2)
+        var downloader: DashDownloader? = null
+        return try {
+            val mediaItem = MediaItem.Builder()
+                .setUri(task.streamUrl)
+                .setMimeType(MimeTypes.APPLICATION_MPD)
+                .build()
+
+            val cacheFactory = DownloadCacheManager.createCacheDataSourceFactory(this, task.signCookie)
+            downloader = DashDownloader(mediaItem, cacheFactory, executor)
+
+            downloadManager.updateProgress(
+                task.id,
+                DownloadProgress(
+                    taskId = task.id,
+                    bytesDownloaded = 0L,
+                    totalBytes = 0L,
+                    percentage = 0,
+                    status = "Downloading"
+                )
+            )
+
+            var lastUpdateMs = 0L
+
+            downloader.download { contentLength, bytesDownloaded, percentDownloaded ->
+                if (downloadManager.isCancelled(task.id)) {
+                    try { downloader?.cancel() } catch (e: Exception) {}
+                    return@download
+                }
+
+                val now = System.currentTimeMillis()
+                if (now - lastUpdateMs > 300) {
+                    val percent = percentDownloaded.toInt().coerceIn(0, 100)
+                    val total = if (contentLength > 0) contentLength else 0L
+                    downloadManager.updateProgress(
+                        task.id,
+                        DownloadProgress(
+                            taskId = task.id,
+                            bytesDownloaded = bytesDownloaded,
+                            totalBytes = total,
+                            percentage = percent,
+                            status = "Downloading"
+                        )
+                    )
+
+                    val notif = buildNotification(task.displayTitle, percent, bytesDownloaded, total)
+                    try {
+                        notificationManager.notify(NOTIFICATION_ID, notif)
+                    } catch (e: Throwable) {}
+                    lastUpdateMs = now
+                }
+            }
+
+            if (downloadManager.isCancelled(task.id)) {
+                return false
+            }
+
+            storageManager.updateDownloadStatus(
+                id = task.id,
+                status = "Ready",
+                localUri = "cache://${task.streamUrl}",
+                sizeText = task.sizeText
+            )
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("DownloadService", "DASH download failed for ${task.displayTitle}", e)
+            storageManager.updateDownloadStatus(task.id, "Failed")
+            false
+        } finally {
+            executor.shutdown()
+        }
+    }
+
+    private fun downloadProgressiveTask(task: DownloadTask): Boolean {
         var outputStream: OutputStream? = null
         var createdUri: Uri? = null
 

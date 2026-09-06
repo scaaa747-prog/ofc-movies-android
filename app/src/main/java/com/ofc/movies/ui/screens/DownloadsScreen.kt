@@ -37,6 +37,7 @@ import com.ofc.movies.ui.theme.*
 import kotlinx.coroutines.delay
 import java.io.File
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun DownloadsScreen(
     onPlayOffline: (movieId: String, title: String) -> Unit,
@@ -412,6 +413,11 @@ fun DownloadsScreen(
                                             } else if (uri.scheme == "file") {
                                                 File(uri.path ?: "").delete()
                                             }
+                                        } catch (e: Exception) {}
+                                    }
+                                    if (item.streamUrl.isNotEmpty()) {
+                                        try {
+                                            com.ofc.movies.data.download.DownloadCacheManager.getCache(context).removeResource(item.streamUrl)
                                         } catch (e: Exception) {}
                                     }
                                     storageManager.removeDownload(item.id)

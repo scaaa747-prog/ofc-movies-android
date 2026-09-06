@@ -273,11 +273,11 @@ class MovieRepository(
     ): List<DownloadQualityOption> = withContext(Dispatchers.IO) {
         val options = mutableListOf<DownloadQualityOption>()
 
-        // 1. Direct playable MP4 streams from play-info (excluding DASH manifests)
+        // 1. Playable streams from play-info (the reliable working streams that play in the player)
         try {
             val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
             for (s in streams) {
-                if (!s.isDash && !s.streamUrl.contains(".mpd") && s.streamUrl.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(s.streamUrl)) {
+                if (s.streamUrl.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(s.streamUrl)) {
                     val res = s.resolution
                     val title = when {
                         res >= 1080 -> "1080p Full HD"
@@ -401,7 +401,7 @@ class MovieRepository(
         }
 
         val distinct = options
-            .filter { !it.streamUrl.contains(".mpd") && !MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
+            .filter { it.streamUrl.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
             .distinctBy { it.resolution }
             .sortedByDescending { it.resolution }
         return@withContext distinct
