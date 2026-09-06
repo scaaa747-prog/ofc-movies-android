@@ -1,10 +1,15 @@
 package com.ofc.movies.ui.screens
 
+import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ofc.movies.data.api.ApiClient
@@ -53,8 +59,8 @@ import kotlinx.coroutines.launch
 fun MovieDetailScreen(
     movieId: String,
     onBackClick: () -> Unit,
-    onPlayClick: (movieId: String, title: String, se: Int, ep: Int) -> Unit,
-    onRelatedMovieClick: (MovieItem) -> Unit,
+    onPlayClick: (movieId: String, title: String, se: Int, ep: Int) -> Unit = { _, _, _, _ -> },
+    onRelatedMovieClick: (MovieItem) -> Unit = {},
     onGoToDownloads: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -63,6 +69,10 @@ fun MovieDetailScreen(
     val repository = remember { MovieRepository(storageManager = storageManager) }
     val downloadManager = remember { AppDownloadManager.getInstance(context) }
     val scope = rememberCoroutineScope()
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     var movieDetail by remember { mutableStateOf<MovieDetailData?>(null) }
     var seasons by remember { mutableStateOf<List<SeasonItem>>(emptyList()) }
@@ -891,6 +901,11 @@ fun MovieDetailScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable {
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                                    }
+                                                }
                                                 if (isSeries) {
                                                     showDownloadDialog = false
                                                     showDownloadSuccessPopup = true

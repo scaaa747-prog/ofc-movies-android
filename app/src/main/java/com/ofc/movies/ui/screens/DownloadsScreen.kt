@@ -31,6 +31,7 @@ import com.ofc.movies.data.api.MovieBoxSigner
 import com.ofc.movies.data.download.AppDownloadManager
 import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
+import com.ofc.movies.data.model.formatDownloadSize
 import com.ofc.movies.ui.components.DownloadNavIcon
 import com.ofc.movies.ui.theme.*
 import kotlinx.coroutines.delay
@@ -49,6 +50,11 @@ fun DownloadsScreen(
 
     var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
     var downloadStatuses by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+
+    // Auto-refresh downloads list whenever inAppProgressMap updates
+    LaunchedEffect(inAppProgressMap) {
+        downloads = storageManager.getDownloads()
+    }
 
     // Auto-clean any corrupt 10-sec promo downloads
     LaunchedEffect(Unit) {
@@ -262,35 +268,53 @@ fun DownloadsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val inApp = inAppProgressMap[item.id]
-                            val status = when {
-                                inApp != null -> {
-                                    if (inApp.status == "Downloading" && inApp.percentage > 0) "${inApp.percentage}%" else inApp.status
-                                }
-                                item.status.isNotEmpty() && item.status != "Ready" -> item.status
-                                downloadStatuses[item.downloadId] != null -> downloadStatuses[item.downloadId]!!
-                                else -> item.status.ifEmpty { "Ready" }
-                            }
+                            val isDownloading = inApp?.status == "Downloading" || item.status == "Downloading"
+                            val isQueued = inApp?.status == "Queued" || item.status == "Queued"
+                            val isFailed = item.status == "Failed"
+                            val isReady = item.status == "Ready" || (!isDownloading && !isQueued && !isFailed)
 
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
+                                    .size(46.dp)
                                     .clip(CircleShape)
-                                    .background(if (status.contains("%") || status == "Queued" || status == "Downloading") DarkCard else PrimaryRed)
+                                    .background(if (isDownloading || isQueued) DarkSurfaceElevated else PrimaryRed)
                                     .clickable {
-                                        if (status.contains("%") || status == "Queued" || status == "Downloading") {
-                                            Toast.makeText(context, "Download in progress. Please wait until ready.", Toast.LENGTH_SHORT).show()
+                                        if (isDownloading || isQueued) {
+                                            Toast.makeText(context, "Download in progress. Please wait until finished.", Toast.LENGTH_SHORT).show()
+                                        } else if (isFailed) {
+                                            Toast.makeText(context, "Download failed. Please delete and retry.", Toast.LENGTH_SHORT).show()
                                         } else {
                                             onPlayOffline(item.id, item.title)
                                         }
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Filled.PlayArrow,
-                                    contentDescription = "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                                if (isDownloading) {
+                                    val progressFraction = if (inApp != null && inApp.totalBytes > 0) {
+                                        (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0f, 1f)
+                                    } else 0f
+                                    CircularProgressIndicator(
+                                        progress = { progressFraction },
+                                        modifier = Modifier.size(28.dp),
+                                        color = PrimaryRed,
+                                        strokeWidth = 3.dp,
+                                        trackColor = DarkCard
+                                    )
+                                } else if (isQueued) {
+                                    Icon(
+                                        imageVector = DownloadNavIcon,
+                                        contentDescription = "Queued",
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.PlayArrow,
+                                        contentDescription = "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.width(14.dp))
@@ -303,7 +327,11 @@ fun DownloadsScreen(
                                     maxLines = 1
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Text(
                                         text = item.quality,
                                         style = MaterialTheme.typography.labelSmall,
@@ -314,20 +342,68 @@ fun DownloadsScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = TextSecondary
                                     )
-                                    Text(
-                                        text = item.sizeText,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = TextSecondary
-                                    )
-                                    Text(
-                                        text = "•",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = TextSecondary
-                                    )
-                                    Text(
-                                        text = status,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = if (status.contains("%") || status == "Queued" || status == "Downloading") PrimaryRed else Color(0xFF4CAF50)
+
+                                    if (isDownloading) {
+                                        val downloadedStr = if (inApp != null) formatDownloadSize(inApp.bytesDownloaded, 0) else "0 MB"
+                                        val totalStr = if (inApp != null && inApp.totalBytes > 0) {
+                                            formatDownloadSize(inApp.totalBytes, 0)
+                                        } else {
+                                            item.sizeText
+                                        }
+                                        val pctStr = if (inApp != null && inApp.percentage > 0) "${inApp.percentage}%" else "Starting"
+                                        Text(
+                                            text = "$downloadedStr / $totalStr ($pctStr)",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = PrimaryRed
+                                        )
+                                    } else if (isQueued) {
+                                        Text(
+                                            text = "${item.sizeText} • Queued in line",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondary
+                                        )
+                                    } else if (isFailed) {
+                                        Text(
+                                            text = "Download Failed",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = PrimaryRed
+                                        )
+                                    } else {
+                                        Text(
+                                            text = item.sizeText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondary
+                                        )
+                                        Text(
+                                            text = "•",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondary
+                                        )
+                                        Text(
+                                            text = "Ready to Watch",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = Color(0xFF4CAF50)
+                                        )
+                                    }
+                                }
+
+                                if (isDownloading || isQueued) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    val progressFraction = if (isDownloading && inApp != null && inApp.totalBytes > 0) {
+                                        (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0f, 1f)
+                                    } else if (isDownloading) {
+                                        0.05f
+                                    } else {
+                                        0f
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { progressFraction },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = PrimaryRed,
+                                        trackColor = DarkSurfaceElevated
                                     )
                                 }
                             }

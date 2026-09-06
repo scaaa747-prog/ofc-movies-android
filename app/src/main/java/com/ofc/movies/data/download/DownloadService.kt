@@ -123,19 +123,22 @@ class DownloadService : Service() {
         var createdUri: Uri? = null
 
         return try {
+            val cleanCookie = task.signCookie?.trim()?.trimEnd(';') ?: ""
             val req = Request.Builder()
                 .url(task.streamUrl)
                 .header("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
-                .header("Referer", "https://h5.aoneroom.com/")
+                .header("Referer", "https://www.movieboxpro.app/")
                 .apply {
-                    if (!task.signCookie.isNullOrBlank()) {
-                        header("Cookie", task.signCookie)
+                    if (cleanCookie.isNotEmpty()) {
+                        header("Cookie", cleanCookie)
                     }
                 }
                 .build()
 
             val response = okHttpClient.newCall(req).execute()
+            android.util.Log.d("DownloadService", "Download response code: ${response.code} for ${task.displayTitle}")
             if (!response.isSuccessful) {
+                android.util.Log.e("DownloadService", "Download failed: HTTP ${response.code} ${response.message}")
                 storageManager.updateDownloadStatus(task.id, "Failed")
                 return false
             }
@@ -147,18 +150,27 @@ class DownloadService : Service() {
             val fileName = "${safeTitle}_${task.quality}.mp4"
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/ofcmovies")
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                try {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/ofcmovies/")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    createdUri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (createdUri != null) {
+                        outputStream = contentResolver.openOutputStream(createdUri)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("DownloadService", "MediaStore insert failed, falling back to private storage", e)
                 }
-                createdUri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                if (createdUri == null) return false
-                outputStream = contentResolver.openOutputStream(createdUri)
-            } else {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val ofcDir = File(downloadsDir, "ofcmovies")
+            }
+
+            // Fallback for Android < Q or if MediaStore insert was restricted
+            if (outputStream == null) {
+                val baseDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                    ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val ofcDir = File(baseDir, "ofcmovies")
                 if (!ofcDir.exists()) ofcDir.mkdirs()
                 val file = File(ofcDir, fileName)
                 outputStream = FileOutputStream(file)
@@ -166,6 +178,18 @@ class DownloadService : Service() {
             }
 
             val out = outputStream ?: return false
+
+            // Immediately set status as Downloading with total bytes
+            downloadManager.updateProgress(
+                task.id,
+                DownloadProgress(
+                    taskId = task.id,
+                    bytesDownloaded = 0L,
+                    totalBytes = contentLength,
+                    percentage = 0,
+                    status = "Downloading"
+                )
+            )
 
             val buffer = ByteArray(64 * 1024)
             var bytesRead: Int
@@ -187,8 +211,8 @@ class DownloadService : Service() {
                 totalBytesDownloaded += bytesRead
 
                 val now = System.currentTimeMillis()
-                if (now - lastUpdateMs > 500) {
-                    val percent = if (contentLength > 0) ((totalBytesDownloaded * 100) / contentLength).toInt() else 0
+                if (now - lastUpdateMs > 300) {
+                    val percent = if (contentLength > 0) ((totalBytesDownloaded * 100) / contentLength).toInt().coerceIn(0, 100) else 0
                     val progress = DownloadProgress(
                         taskId = task.id,
                         bytesDownloaded = totalBytesDownloaded,
@@ -213,10 +237,12 @@ class DownloadService : Service() {
             outputStream = null
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && createdUri != null) {
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.IS_PENDING, 0)
-                }
-                contentResolver.update(createdUri, values, null, null)
+                try {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }
+                    contentResolver.update(createdUri, values, null, null)
+                } catch (e: Exception) {}
             }
 
             val sizeFormatted = formatDownloadSize(totalBytesDownloaded, 0)
@@ -228,6 +254,7 @@ class DownloadService : Service() {
             )
             true
         } catch (e: Exception) {
+            android.util.Log.e("DownloadService", "Error during download task", e)
             storageManager.updateDownloadStatus(task.id, "Failed")
             false
         } finally {
@@ -255,6 +282,8 @@ class DownloadService : Service() {
             .setContentText(contentText)
             .setProgress(100, percent, totalBytes <= 0)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setContentIntent(createOpenDownloadsPendingIntent())
             .setOnlyAlertOnce(true)
             .build()
@@ -278,10 +307,10 @@ class DownloadService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "OFC Movies Downloads",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Shows movie and episode download progress"
-                setShowBadge(false)
+                setShowBadge(true)
             }
             notificationManager.createNotificationChannel(channel)
         }
