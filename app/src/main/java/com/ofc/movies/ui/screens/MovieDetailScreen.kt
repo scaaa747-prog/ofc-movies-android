@@ -371,7 +371,7 @@ fun MovieDetailScreen(
                                             val playSeason = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedSeason else 0
                                             val playEpisode = if (detail.subjectType == 2 && seasons.isNotEmpty()) selectedEpisode else 0
                                             val stream = repository.getDownloadStream(selectedDubId, playSeason, playEpisode)
-                                            if (stream != null && stream.streamUrl.isNotEmpty()) {
+                                            if (stream != null && stream.streamUrl.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(stream.streamUrl)) {
                                                 try {
                                                     val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                                                     val cleanTitle = detail.title.replace(Regex("[^a-zA-Z0-9.-]"), "_")
@@ -383,8 +383,9 @@ fun MovieDetailScreen(
                                                         .setAllowedOverMetered(true)
                                                         .setAllowedOverRoaming(true)
 
-                                                    if (!stream.signCookie.isNullOrEmpty()) {
-                                                        req.addRequestHeader("Cookie", stream.signCookie)
+                                                    val cleanCookie = stream.signCookie?.trim()?.trimEnd(';') ?: ""
+                                                    if (cleanCookie.isNotEmpty()) {
+                                                        req.addRequestHeader("Cookie", cleanCookie)
                                                         req.addRequestHeader("Referer", "https://www.movieboxpro.app/")
                                                     }
                                                     req.addRequestHeader("User-Agent", MovieBoxSigner.ANDROID_USER_AGENT)
@@ -417,7 +418,7 @@ fun MovieDetailScreen(
                                                     Toast.makeText(context, "Download failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                                 }
                                             } else {
-                                                Toast.makeText(context, "No stream found to download", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Direct download is not available for this title. Online streaming is active!", Toast.LENGTH_LONG).show()
                                             }
                                         }
                                     }

@@ -1,6 +1,5 @@
 package com.ofc.movies.data.api
 
-import android.util.Log
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.data.model.*
 import kotlinx.coroutines.Dispatchers
@@ -124,16 +123,6 @@ class MovieRepository(
 
                 val playable = mutableListOf<PlayableStream>()
 
-                Log.d("STREAMS", "=== RAW STREAMS for subjectId=$subjectId se=$se ep=$ep count=${streams.size} ===")
-                for (s in streams) {
-                    Log.d("STREAMS", "  url=${s.url}")
-                    Log.d("STREAMS", "  dashUrl=${s.dashUrl}")
-                    Log.d("STREAMS", "  resourceLink=${s.resourceLink}")
-                    Log.d("STREAMS", "  resolutions=${s.resolutions} resolution=${s.resolution}")
-                    Log.d("STREAMS", "  signCookie=${if (!s.signCookie.isNullOrEmpty()) "HAS_COOKIE(${s.signCookie!!.length}chars)" else "NONE"}")
-                    Log.d("STREAMS", "  ---")
-                }
-
                 for (s in streams) {
                     val cookie = s.signCookie ?: ""
                     val codec = s.codecName ?: "hevc"
@@ -172,26 +161,26 @@ class MovieRepository(
                                 )
                             }
                         }
-                    }
-
-                    // Direct MP4 stream if available
-                    val url = s.url ?: s.resourceLink ?: ""
-                    if (url.isNotEmpty() && !url.contains("9a0461bc39da389663bf3dbb17091d3f")) {
-                        for (rInt in resList) {
-                            playable.add(
-                                PlayableStream(
-                                    title = "${rInt}P",
-                                    resolution = rInt,
-                                    codecName = codec,
-                                    size = size,
-                                    duration = duration,
-                                    streamUrl = url,
-                                    isDash = false,
-                                    signCookie = if (cookie.isNotEmpty()) cookie else null,
-                                    season = se,
-                                    episode = ep
+                    } else {
+                        // Direct MP4 stream ONLY if not a CloudFront DASH stream and not a fake promo video
+                        val url = s.url ?: s.resourceLink ?: ""
+                        if (url.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(url)) {
+                            for (rInt in resList) {
+                                playable.add(
+                                    PlayableStream(
+                                        title = "${rInt}P",
+                                        resolution = rInt,
+                                        codecName = codec,
+                                        size = size,
+                                        duration = duration,
+                                        streamUrl = url,
+                                        isDash = false,
+                                        signCookie = if (cookie.isNotEmpty()) cookie else null,
+                                        season = se,
+                                        episode = ep
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
@@ -234,8 +223,7 @@ class MovieRepository(
                                     )
                                 )
                             }
-                        }
-                        if (link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f")) {
+                        } else if (link.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(link)) {
                             playable.add(
                                 PlayableStream(
                                     title = "${res}P",
@@ -264,12 +252,12 @@ class MovieRepository(
     suspend fun getDownloadStream(subjectId: String, se: Int = 0, ep: Int = 0): PlayableStream? =
         withContext(Dispatchers.IO) {
             try {
-                // 1. Try resources endpoint for direct downloadable link
+                // 1. Try resources endpoint for legitimate direct downloadable link
                 val res = api.getResources(subjectId = subjectId, se = se, ep = ep, page = 1)
                 val list = res.data?.list ?: emptyList()
                 val direct = list.firstOrNull { r ->
                     val link = r.resourceLink ?: ""
-                    link.isNotEmpty() && !link.contains("9a0461bc39da389663bf3dbb17091d3f")
+                    link.isNotEmpty() && !MovieBoxSigner.isFakeClipUrl(link)
                 }
                 if (direct != null && !direct.resourceLink.isNullOrEmpty()) {
                     val resInt = if (direct.resolution > 0) direct.resolution else 720
@@ -290,8 +278,8 @@ class MovieRepository(
                 // Ignore fallback
             }
 
-            // 2. Otherwise fallback to best playable streams (prefer direct MP4 if available)
+            // 2. Otherwise only return a real non-fake stream
             val streams = getPlayableStreams(subjectId, se, ep).getOrNull() ?: emptyList()
-            return@withContext streams.firstOrNull { !it.isDash } ?: streams.firstOrNull()
+            return@withContext streams.firstOrNull { !it.isDash && !MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
         }
 }

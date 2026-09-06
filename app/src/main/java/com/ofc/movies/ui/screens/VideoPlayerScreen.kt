@@ -35,8 +35,10 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -122,9 +124,15 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Initialize ExoPlayer with optimized loadControl and trackSelector
+    val renderersFactory = remember {
+        DefaultRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
+        }
+    }
+
+    // Initialize ExoPlayer with optimized loadControl, renderersFactory and trackSelector
     val exoPlayer = remember {
-        ExoPlayer.Builder(context)
+        ExoPlayer.Builder(context, renderersFactory)
             .setLoadControl(loadControl)
             .setTrackSelector(trackSelector)
             .build().apply {
@@ -176,20 +184,29 @@ fun VideoPlayerScreen(
         // 1. Check if user already downloaded this title offline
         val downloadedItem = storageManager.getDownloads().firstOrNull { it.id == movieId }
         var localPlaySuccess = false
-        if (downloadedItem != null && downloadedItem.downloadId > 0L) {
-            try {
+        if (downloadedItem != null) {
+            if (MovieBoxSigner.isFakeClipUrl(downloadedItem.streamUrl)) {
+                // Remove corrupted fake promo download from storage
                 val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-                val localUri = dm?.getUriForDownloadedFile(downloadedItem.downloadId)
-                if (localUri != null) {
-                    val mediaItem = MediaItem.fromUri(localUri)
-                    exoPlayer.setMediaItem(mediaItem)
-                    exoPlayer.prepare()
-                    exoPlayer.play()
-                    isLoadingStreams = false
-                    localPlaySuccess = true
+                if (downloadedItem.downloadId > 0L) {
+                    try { dm?.remove(downloadedItem.downloadId) } catch (e: Exception) {}
                 }
-            } catch (e: Exception) {
-                // Fallback to streaming
+                storageManager.removeDownload(movieId)
+            } else if (downloadedItem.downloadId > 0L) {
+                try {
+                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                    val localUri = dm?.getUriForDownloadedFile(downloadedItem.downloadId)
+                    if (localUri != null) {
+                        val mediaItem = MediaItem.fromUri(localUri)
+                        exoPlayer.setMediaItem(mediaItem)
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                        isLoadingStreams = false
+                        localPlaySuccess = true
+                    }
+                } catch (e: Exception) {
+                    // Fallback to streaming
+                }
             }
         }
 
@@ -235,9 +252,8 @@ fun VideoPlayerScreen(
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                val currentIndex = streams.indexOf(selectedStream)
-                if (currentIndex in 0 until streams.size - 1) {
-                    val nextStream = streams[currentIndex + 1]
+                val nextStream = streams.firstOrNull { it != selectedStream && it.streamUrl != selectedStream?.streamUrl }
+                if (nextStream != null) {
                     selectedStream = nextStream
                     playStream(exoPlayer, nextStream)
                 } else {
@@ -704,46 +720,38 @@ private fun playStream(player: ExoPlayer, stream: PlayableStream, seekToMs: Long
     player.stop()
     player.clearMediaItems()
 
-    if (stream.isDash && !stream.signCookie.isNullOrEmpty()) {
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(MovieBoxSigner.ANDROID_USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(20000)
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Cookie" to stream.signCookie,
-                    "Referer" to "https://www.movieboxpro.app/"
-                )
-            )
-
-        val mediaItem = MediaItem.Builder()
-            .setUri(stream.streamUrl)
-            .setMimeType(MimeTypes.APPLICATION_MPD)
-            .build()
-
-        val mediaSource = DashMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-        player.setMediaSource(mediaSource)
-    } else {
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(MovieBoxSigner.ANDROID_USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(20000)
-
-        if (!stream.signCookie.isNullOrEmpty()) {
-            dataSourceFactory.setDefaultRequestProperties(
-                mapOf(
-                    "Cookie" to stream.signCookie,
-                    "Referer" to "https://www.movieboxpro.app/"
-                )
-            )
-        }
-
-        val mediaItem = MediaItem.fromUri(stream.streamUrl)
-        player.setMediaItem(mediaItem)
+    val cleanCookie = stream.signCookie?.trim()?.trimEnd(';') ?: ""
+    val headers = mutableMapOf(
+        "User-Agent" to MovieBoxSigner.ANDROID_USER_AGENT,
+        "Referer" to "https://www.movieboxpro.app/"
+    )
+    if (cleanCookie.isNotEmpty()) {
+        headers["Cookie"] = cleanCookie
     }
 
+    val dataSourceFactory = DefaultHttpDataSource.Factory()
+        .setUserAgent(MovieBoxSigner.ANDROID_USER_AGENT)
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(20000)
+        .setReadTimeoutMs(25000)
+        .setDefaultRequestProperties(headers)
+
+    val mediaItem = MediaItem.Builder()
+        .setUri(stream.streamUrl)
+        .apply {
+            if (stream.isDash) {
+                setMimeType(MimeTypes.APPLICATION_MPD)
+            }
+        }
+        .build()
+
+    val mediaSource = if (stream.isDash) {
+        DashMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+    } else {
+        ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+    }
+
+    player.setMediaSource(mediaSource)
     player.prepare()
     if (seekToMs > 0L) {
         player.seekTo(seekToMs)

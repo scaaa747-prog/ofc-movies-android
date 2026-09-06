@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.ofc.movies.data.api.MovieBoxSigner
 import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
 import com.ofc.movies.ui.components.DownloadNavIcon
@@ -42,6 +43,22 @@ fun DownloadsScreen(
 
     var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
     var downloadStatuses by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+
+    // Auto-clean any corrupt 10-sec promo downloads
+    LaunchedEffect(Unit) {
+        val current = storageManager.getDownloads()
+        val fake = current.filter { MovieBoxSigner.isFakeClipUrl(it.streamUrl) }
+        if (fake.isNotEmpty()) {
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+            fake.forEach { item ->
+                if (item.downloadId > 0L) {
+                    try { dm?.remove(item.downloadId) } catch (e: Exception) {}
+                }
+                storageManager.removeDownload(item.id)
+            }
+            downloads = storageManager.getDownloads()
+        }
+    }
 
     // Periodically refresh real download statuses
     LaunchedEffect(downloads) {

@@ -131,13 +131,29 @@ object MovieBoxSigner {
         return "$ts|2|$b64Mac"
     }
 
+    fun isFakeClipUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return true
+        val lower = url.lowercase()
+        return lower.contains("/other/") ||
+                lower.contains("macdn.aoneroom.com") ||
+                lower.contains("9a0461bc39da389663bf3dbb17091d3f") ||
+                lower.contains("b164fbfb4347792950bdfbfb563d39d9")
+    }
+
     fun extractBaseDashUrl(cookie: String): String? {
         if (!cookie.contains("CloudFront-Policy=")) return null
         return try {
             val policyPart = cookie.substringAfter("CloudFront-Policy=").substringBefore(";")
-            val paddingNeeded = (4 - (policyPart.length % 4)) % 4
-            val padded = policyPart + "=".repeat(paddingNeeded)
-            val decoded = Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP)
+                .replace("\n", "")
+                .replace("\r", "")
+                .trim()
+            val norm = policyPart
+                .replace('-', '+')
+                .replace('_', '/')
+                .replace('~', '=')
+            val paddingNeeded = (4 - (norm.length % 4)) % 4
+            val padded = norm + "=".repeat(paddingNeeded)
+            val decoded = Base64.decode(padded, Base64.DEFAULT)
             val rawStr = String(decoded, Charsets.UTF_8)
             val lastBrace = rawStr.lastIndexOf('}')
             if (lastBrace != -1) {
@@ -148,11 +164,10 @@ object MovieBoxSigner {
                 resource.replace("/*", "")
             } else {
                 val regex = Regex("""(https://[^\s"';]+)/\*""")
-                regex.find(cookie)?.groupValues?.get(1)
+                regex.find(rawStr)?.groupValues?.get(1)
             }
         } catch (e: Exception) {
-            val regex = Regex("""(https://[^\s"';]+)/\*""")
-            regex.find(cookie)?.groupValues?.get(1)
+            null
         }
     }
 }
