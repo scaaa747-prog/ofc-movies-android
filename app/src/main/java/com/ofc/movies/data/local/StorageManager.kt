@@ -197,4 +197,36 @@ class StorageManager private constructor(context: Context) {
     fun setFamilyModeEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("setting_family_mode", enabled).apply()
     }
+
+    // ==========================================
+    // 5. SEARCH HISTORY
+    // ==========================================
+    fun getSearchHistory(): List<String> {
+        val json = prefs.getString("search_history", null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<String>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun addSearchQuery(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        val list = getSearchHistory().toMutableList()
+        list.removeAll { it.equals(trimmed, ignoreCase = true) }
+        list.add(0, trimmed)
+        prefs.edit().putString("search_history", gson.toJson(list.take(25))).apply()
+    }
+
+    fun removeSearchQuery(query: String) {
+        val list = getSearchHistory().toMutableList()
+        list.removeAll { it.equals(query.trim(), ignoreCase = true) }
+        prefs.edit().putString("search_history", gson.toJson(list)).apply()
+    }
+
+    fun clearSearchHistory() {
+        prefs.edit().remove("search_history").apply()
+    }
 }
