@@ -50,11 +50,18 @@ class HomeViewModel(
         }
     }
 
-    fun loadHomeContent() {
-        viewModelScope.launch {
-            _uiState.value = HomeUiState.Loading
+    fun loadHomeContent(force: Boolean = false) {
+        if (!force && _uiState.value is HomeUiState.Success) {
+            refreshContinueWatching()
+            return
+        }
 
-            val result = repository.getHomeSections()
+        viewModelScope.launch {
+            if (_uiState.value !is HomeUiState.Success) {
+                _uiState.value = HomeUiState.Loading
+            }
+
+            val result = repository.getHomeSections(force = force)
             result.onSuccess { sections ->
                 val allMovies = sections.flatMap { it.items }.distinctBy { it.id }
                 val heroMovies = allMovies.take(5)
@@ -70,7 +77,9 @@ class HomeViewModel(
                     rows = sections
                 )
             }.onFailure { err ->
-                _uiState.value = HomeUiState.Error(formatUserFriendlyError(err, "Failed to load content"))
+                if (_uiState.value !is HomeUiState.Success) {
+                    _uiState.value = HomeUiState.Error(formatUserFriendlyError(err, "Failed to load content"))
+                }
             }
 
             _isRefreshing.value = false
@@ -79,6 +88,6 @@ class HomeViewModel(
 
     fun refresh() {
         _isRefreshing.value = true
-        loadHomeContent()
+        loadHomeContent(force = true)
     }
 }

@@ -17,7 +17,11 @@ data class DownloadedItem(
     val streamUrl: String,
     val downloadId: Long = -1L,
     val localUri: String = "",
-    val status: String = "Ready"
+    val status: String = "Ready",
+    val movieId: String = "",
+    val seriesName: String = "",
+    val season: Int = 0,
+    val episode: Int = 0
 )
 
 class StorageManager private constructor(context: Context) {

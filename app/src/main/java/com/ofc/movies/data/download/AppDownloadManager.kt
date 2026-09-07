@@ -62,7 +62,7 @@ class AppDownloadManager private constructor(private val appContext: Context) {
 
         for (task in tasks) {
             cancelledTaskIds.remove(task.id)
-            // Persist item as Queued in StorageManager
+            val isSeries = task.season > 0 || task.episode > 0 || task.displayTitle.contains(" - S")
             storageManager.addDownload(
                 DownloadedItem(
                     id = task.id,
@@ -74,7 +74,11 @@ class AppDownloadManager private constructor(private val appContext: Context) {
                     streamUrl = task.streamUrl,
                     downloadId = -1L,
                     localUri = "",
-                    status = "Queued"
+                    status = "Queued",
+                    movieId = task.movieId,
+                    seriesName = if (isSeries) task.title else "",
+                    season = task.season,
+                    episode = task.episode
                 )
             )
 

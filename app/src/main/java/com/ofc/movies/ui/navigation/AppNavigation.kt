@@ -92,6 +92,9 @@ fun AppNavigation(initialTab: String? = null) {
                 },
                 onPlayOffline = { movieId, title ->
                     navController.navigate(Routes.player(movieId, title, 0, 0))
+                },
+                onNavigateToDetail = { movieId ->
+                    navController.navigate(Routes.detail(movieId))
                 }
             )
         }
@@ -169,7 +172,8 @@ fun MainContainerScreen(
     initialTabName: String? = null,
     onMovieClick: (com.ofc.movies.data.model.MovieItem) -> Unit,
     onCategoryClick: (String) -> Unit,
-    onPlayOffline: (movieId: String, title: String) -> Unit
+    onPlayOffline: (movieId: String, title: String) -> Unit,
+    onNavigateToDetail: (movieId: String) -> Unit = {}
 ) {
     val initialNavTab = when (initialTabName?.lowercase()) {
         "downloads" -> NavTab.DOWNLOADS
@@ -239,7 +243,8 @@ fun MainContainerScreen(
                     NavTab.DOWNLOADS -> {
                         DownloadsScreen(
                             onPlayOffline = onPlayOffline,
-                            onBrowseMovies = { selectedTab = NavTab.HOME }
+                            onBrowseMovies = { selectedTab = NavTab.HOME },
+                            onNavigateToDetail = onNavigateToDetail
                         )
                     }
                     NavTab.PROFILE -> {

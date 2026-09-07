@@ -6,28 +6,36 @@ import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.ofc.movies.data.api.MovieBoxSigner
 import com.ofc.movies.data.download.AppDownloadManager
 import com.ofc.movies.data.local.DownloadedItem
 import com.ofc.movies.data.local.StorageManager
@@ -40,11 +48,44 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+data class SeriesDownloadGroup(
+    val seriesName: String,
+    val seriesId: String,
+    val coverUrl: String,
+    val episodes: List<DownloadedItem>
+)
+
+private fun isSeriesItem(item: DownloadedItem): Boolean {
+    return item.season > 0 || item.episode > 0 || item.seriesName.isNotEmpty() || item.title.contains(" - S")
+}
+
+private fun getSeriesTitle(item: DownloadedItem): String {
+    if (item.seriesName.isNotEmpty()) return item.seriesName
+    if (item.title.contains(" - S")) return item.title.substringBefore(" - S").trim()
+    return item.title
+}
+
+private fun getSeriesId(item: DownloadedItem): String {
+    if (item.movieId.isNotEmpty()) return item.movieId.substringBefore("_s")
+    return item.id.substringBefore("_s")
+}
+
+private fun getEpisodeLabel(item: DownloadedItem): String {
+    if (item.season > 0 && item.episode > 0) {
+        return "Season ${item.season} • Episode ${item.episode}"
+    }
+    if (item.title.contains(" - S")) {
+        return item.title.substringAfter(" - ").trim()
+    }
+    return item.title
+}
+
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun DownloadsScreen(
     onPlayOffline: (movieId: String, title: String) -> Unit,
     onBrowseMovies: () -> Unit = {},
+    onNavigateToDetail: (movieId: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -54,59 +95,29 @@ fun DownloadsScreen(
     val inAppProgressMap by appDownloadManager.progressMap.collectAsState()
 
     var downloads by remember { mutableStateOf(storageManager.getDownloads()) }
-    var downloadStatuses by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var itemToDelete by remember { mutableStateOf<DownloadedItem?>(null) }
+    var selectedFilter by remember { mutableStateOf("All") }
+
+    val expandedSeries = remember { mutableStateMapOf<String, Boolean>() }
 
     // Refresh downloads list only when a task starts, finishes, or changes status
     LaunchedEffect(inAppProgressMap.keys, inAppProgressMap.values.map { it.status }) {
         downloads = storageManager.getDownloads()
     }
 
-
-    // Periodically refresh real download statuses
+    // Periodic safety sync (every 3 seconds)
     LaunchedEffect(Unit) {
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
         while (true) {
-            downloads = storageManager.getDownloads()
-            if (dm != null && downloads.isNotEmpty()) {
-                val map = mutableMapOf<Long, String>()
-                downloads.forEach { item ->
-                    if (item.downloadId > 0L) {
-                        try {
-                            val cursor = dm.query(DownloadManager.Query().setFilterById(item.downloadId))
-                            if (cursor != null && cursor.moveToFirst()) {
-                                val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                                val status = if (statusIdx != -1) cursor.getInt(statusIdx) else -1
-                                val bytesDownloadedIdx = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
-                                val bytesTotalIdx = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
-                                val downloaded = if (bytesDownloadedIdx != -1) cursor.getLong(bytesDownloadedIdx) else 0L
-                                val total = if (bytesTotalIdx != -1) cursor.getLong(bytesTotalIdx) else 0L
-
-                                val statusStr = when (status) {
-                                    DownloadManager.STATUS_RUNNING -> {
-                                        if (total > 0) "${(downloaded * 100 / total)}%" else "Downloading"
-                                    }
-                                    DownloadManager.STATUS_PENDING -> "Queued"
-                                    DownloadManager.STATUS_SUCCESSFUL -> "Ready"
-                                    DownloadManager.STATUS_FAILED -> "Failed"
-                                    else -> "Ready"
-                                }
-                                map[item.downloadId] = statusStr
-                                cursor.close()
-                            }
-                        } catch (e: Exception) {
-                            // ignore
-                        }
-                    }
-                }
-                downloadStatuses = map
+            val fresh = storageManager.getDownloads()
+            if (fresh.size != downloads.size || fresh.map { it.status } != downloads.map { it.status }) {
+                downloads = fresh
             }
-            delay(1500)
+            delay(3000)
         }
     }
 
-    // Calculate real device storage via StatFs
-    val (freeSpaceText, totalSpaceText, usedRatio) = remember {
+    // Storage info via StatFs
+    val (freeSpaceText, totalSpaceText, usedRatio) = remember(downloads.size) {
         try {
             val stat = StatFs(Environment.getDataDirectory().path)
             val available = stat.availableBlocksLong * stat.blockSizeLong
@@ -115,11 +126,44 @@ fun DownloadsScreen(
             val freeGb = available.toDouble() / (1024 * 1024 * 1024)
             val totalGb = total.toDouble() / (1024 * 1024 * 1024)
             val ratio = if (total > 0) (used.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0.5f
-            Triple("%.1f GB Free".format(freeGb), "%.1f GB Total".format(totalGb), ratio)
+            Triple("%.1f GB Free".format(freeGb), "%.1f GB".format(totalGb), ratio)
         } catch (e: Exception) {
             Triple("Available", "Device Storage", 0.3f)
         }
     }
+
+    // Split Movies and Series
+    val moviesList = remember(downloads) { downloads.filter { !isSeriesItem(it) } }
+    val seriesList = remember(downloads) { downloads.filter { isSeriesItem(it) } }
+
+    val seriesGroups = remember(seriesList) {
+        seriesList
+            .groupBy { getSeriesTitle(it) }
+            .map { (name, episodes) ->
+                val first = episodes.first()
+                SeriesDownloadGroup(
+                    seriesName = name,
+                    seriesId = getSeriesId(first),
+                    coverUrl = first.coverUrl,
+                    episodes = episodes.sortedWith(compareBy({ it.season }, { it.episode }))
+                )
+            }
+    }
+
+    // Auto-expand new series groups
+    LaunchedEffect(seriesGroups.map { it.seriesName }) {
+        seriesGroups.forEach { group ->
+            if (!expandedSeries.containsKey(group.seriesName)) {
+                expandedSeries[group.seriesName] = true
+            }
+        }
+    }
+
+    val filterTabs = listOf(
+        "All" to downloads.size,
+        "Movies" to moviesList.size,
+        "TV Shows" to seriesGroups.size
+    )
 
     Column(
         modifier = modifier
@@ -127,31 +171,64 @@ fun DownloadsScreen(
             .background(DarkBackground)
             .statusBarsPadding()
     ) {
-        Text(
-            text = "Downloads",
-            style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = (-0.5).sp
-            ),
-            color = TextPrimary,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-        )
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Downloads",
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-0.5).sp
+                    ),
+                    color = TextPrimary
+                )
+                Text(
+                    text = "${downloads.size} offline items available",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        }
 
-        // Real Device Storage Bar
+        // Storage Usage Card
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(14.dp),
             color = DarkCard,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 4.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Device Storage", color = TextPrimary, style = MaterialTheme.typography.titleSmall)
-                    Text(text = freeSpaceText, color = RatingGold, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Storage,
+                            contentDescription = null,
+                            tint = RatingGold,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Device Storage",
+                            color = TextPrimary,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    Text(
+                        text = "$freeSpaceText of $totalSpaceText",
+                        color = RatingGold,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -165,22 +242,62 @@ fun DownloadsScreen(
                     color = PrimaryRed,
                     trackColor = DarkSurfaceElevated
                 )
+            }
+        }
 
-                Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+        // Segmented Tabs Filter Pills
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(filterTabs) { (tabTitle, count) ->
+                val isSelected = selectedFilter == tabTitle
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (isSelected) PrimaryRed else DarkCard,
+                    modifier = Modifier.clickable { selectedFilter = tabTitle }
                 ) {
-                    Text(text = "Real System Storage", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-                    Text(text = totalSpaceText, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = tabTitle,
+                            color = if (isSelected) Color.White else TextPrimary,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        if (count > 0) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) Color.White.copy(alpha = 0.25f) else DarkSurfaceElevated
+                            ) {
+                                Text(
+                                    text = "$count",
+                                    color = if (isSelected) Color.White else TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        if (downloads.isEmpty()) {
+        // Main Downloads Content List
+        val showMovies = selectedFilter == "All" || selectedFilter == "Movies"
+        val showSeries = selectedFilter == "All" || selectedFilter == "TV Shows"
+
+        val hasItemsToShow = (showMovies && moviesList.isNotEmpty()) || (showSeries && seriesGroups.isNotEmpty())
+
+        if (!hasItemsToShow) {
+            // Empty State
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -193,23 +310,25 @@ fun DownloadsScreen(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(80.dp)
                             .clip(CircleShape)
                             .background(DarkCard),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = DownloadNavIcon,
-                            contentDescription = "No Downloads",
+                            imageVector = Icons.Filled.CloudDownload,
+                            contentDescription = null,
                             tint = TextSecondary,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(40.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     Text(
-                        text = "No Downloads Yet",
+                        text = if (selectedFilter == "TV Shows") "No TV Shows Downloaded"
+                               else if (selectedFilter == "Movies") "No Movies Downloaded"
+                               else "No Downloads Yet",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = TextPrimary
                     )
@@ -217,7 +336,7 @@ fun DownloadsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Download movies and episodes to watch them offline anytime without internet connection.",
+                        text = "Download movies and TV shows to watch them offline anytime without consuming mobile data.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -232,8 +351,14 @@ fun DownloadsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
                         modifier = Modifier.height(46.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Filled.Explore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Browse Movies",
+                            text = "Explore Movies & Shows",
                             color = Color.White,
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                         )
@@ -244,181 +369,167 @@ fun DownloadsScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(downloads, key = { it.id }) { item ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = DarkCard,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                // 1. Series Groups Section
+                if (showSeries && seriesGroups.isNotEmpty()) {
+                    items(seriesGroups, key = { "series_${it.seriesName}" }) { group ->
+                        val isExpanded = expandedSeries[group.seriesName] ?: true
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = DarkCard,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            val inApp = inAppProgressMap[item.id]
-                            val isDownloading = inApp?.status == "Downloading" || item.status == "Downloading"
-                            val isQueued = inApp?.status == "Queued" || item.status == "Queued"
-                            val isFailed = item.status == "Failed"
-                            val isReady = item.status == "Ready" || (!isDownloading && !isQueued && !isFailed)
-
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isDownloading || isQueued) DarkSurfaceElevated else PrimaryRed)
-                                    .clickable {
-                                        if (isDownloading || isQueued) {
-                                            Toast.makeText(context, "Download in progress. Please wait until finished.", Toast.LENGTH_SHORT).show()
-                                        } else if (isFailed) {
-                                            Toast.makeText(context, "Download failed. Please delete and retry.", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            onPlayOffline(item.id, item.title)
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isDownloading) {
-                                    val circleProgress = if (inApp != null && inApp.percentage > 0) {
-                                        (inApp.percentage.toFloat() / 100f).coerceIn(0.05f, 1f)
-                                    } else if (inApp != null && inApp.totalBytes > 0 && inApp.bytesDownloaded > 0) {
-                                        (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0.05f, 1f)
-                                    } else 0.05f
-                                    CircularProgressIndicator(
-                                        progress = { circleProgress },
-                                        modifier = Modifier.size(28.dp),
-                                        color = PrimaryRed,
-                                        strokeWidth = 3.dp,
-                                        trackColor = DarkCard
-                                    )
-                                } else if (isQueued) {
-                                    Icon(
-                                        imageVector = DownloadNavIcon,
-                                        contentDescription = "Queued",
-                                        tint = TextSecondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayArrow,
-                                        contentDescription = "Play",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.title,
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = TextPrimary,
-                                    maxLines = 1
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                // Series Header Card
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            expandedSeries[group.seriesName] = !isExpanded
+                                        }
+                                        .padding(14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = item.quality,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = RatingGold
-                                    )
-                                    Text(
-                                        text = "•",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = TextSecondary
-                                    )
-
-                                    if (isDownloading) {
-                                        val downloadedStr = if (inApp != null && inApp.bytesDownloaded > 0) formatDownloadSize(inApp.bytesDownloaded, 0) else "0 MB"
-                                        val totalStr = if (inApp != null && inApp.totalBytes > 0) {
-                                            formatDownloadSize(inApp.totalBytes, 0)
-                                        } else {
-                                            item.sizeText
-                                        }
-                                        val pctStr = if (inApp != null && inApp.percentage > 0) "${inApp.percentage}%" else "Downloading"
-                                        Text(
-                                            text = "$downloadedStr / $totalStr ($pctStr)",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = PrimaryRed
-                                        )
-                                    } else if (isQueued) {
-                                        Text(
-                                            text = "${item.sizeText} • Queued in line",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextSecondary
-                                        )
-                                    } else if (isFailed) {
-                                        Text(
-                                            text = "Download Failed",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = PrimaryRed
-                                        )
-                                    } else {
-                                        Text(
-                                            text = item.sizeText,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextSecondary
-                                        )
-                                        Text(
-                                            text = "•",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextSecondary
-                                        )
-                                        Text(
-                                            text = "Ready to Watch",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = Color(0xFF4CAF50)
-                                        )
-                                    }
-                                }
-
-                                if (isDownloading || isQueued) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    val progressFraction = if (isDownloading && inApp != null) {
-                                        if (inApp.percentage > 0) {
-                                            (inApp.percentage.toFloat() / 100f).coerceIn(0f, 1f)
-                                        } else if (inApp.totalBytes > 0 && inApp.bytesDownloaded > 0) {
-                                            (inApp.bytesDownloaded.toFloat() / inApp.totalBytes.toFloat()).coerceIn(0f, 1f)
-                                        } else {
-                                            0.05f
-                                        }
-                                    } else {
-                                        0f
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = { progressFraction },
+                                    // Poster
+                                    AsyncImage(
+                                        model = group.coverUrl,
+                                        contentDescription = group.seriesName,
+                                        contentScale = ContentScale.Crop,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(4.dp)
-                                            .clip(RoundedCornerShape(2.dp)),
-                                        color = PrimaryRed,
-                                        trackColor = DarkSurfaceElevated
+                                            .width(55.dp)
+                                            .height(80.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(DarkSurfaceElevated)
                                     )
-                                }
-                            }
 
-                            IconButton(
-                                onClick = {
-                                    itemToDelete = item
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Delete,
-                                    contentDescription = "Delete",
-                                    tint = TextSecondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                    Spacer(modifier = Modifier.width(14.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = group.seriesName,
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = PrimaryRed.copy(alpha = 0.2f)
+                                            ) {
+                                                Text(
+                                                    text = "SERIES",
+                                                    color = PrimaryRed,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "${group.episodes.size} ${if (group.episodes.size == 1) "Episode" else "Episodes"}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = RatingGold
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        val totalSizeText = group.episodes.map { it.sizeText }.firstOrNull() ?: ""
+                                        Text(
+                                            text = "Downloaded on device",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextSecondary
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            expandedSeries[group.seriesName] = !isExpanded
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                            tint = TextSecondary
+                                        )
+                                    }
+                                }
+
+                                // Episodes inside series
+                                AnimatedVisibility(
+                                    visible = isExpanded,
+                                    enter = expandVertically(tween(250)) + fadeIn(),
+                                    exit = shrinkVertically(tween(250)) + fadeOut()
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        HorizontalDivider(
+                                            color = DarkSurfaceElevated,
+                                            thickness = 1.dp,
+                                            modifier = Modifier.padding(horizontal = 14.dp)
+                                        )
+
+                                        group.episodes.forEach { epItem ->
+                                            DownloadEpisodeItemRow(
+                                                item = epItem,
+                                                inAppProgress = inAppProgressMap[epItem.id],
+                                                onPlay = { onPlayOffline(epItem.id, epItem.title) },
+                                                onDelete = { itemToDelete = epItem }
+                                            )
+                                        }
+
+                                        // "Download More Episodes" button
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = DarkSurfaceElevated
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        onNavigateToDetail(group.seriesId)
+                                                    }
+                                                    .padding(vertical = 12.dp),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.AddCircleOutline,
+                                                    contentDescription = null,
+                                                    tint = PrimaryRed,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "Download More Episodes",
+                                                    color = PrimaryRed,
+                                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
+                    }
+                }
+
+                // 2. Standalone Movies Section
+                if (showMovies && moviesList.isNotEmpty()) {
+                    items(moviesList, key = { "movie_${it.id}" }) { movieItem ->
+                        DownloadMovieCard(
+                            item = movieItem,
+                            inAppProgress = inAppProgressMap[movieItem.id],
+                            onPlay = { onPlayOffline(movieItem.id, movieItem.title) },
+                            onDelete = { itemToDelete = movieItem }
+                        )
                     }
                 }
             }
@@ -430,12 +541,19 @@ fun DownloadsScreen(
             AlertDialog(
                 onDismissRequest = { itemToDelete = null },
                 icon = {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete",
-                        tint = PrimaryRed,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(PrimaryRed.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Delete",
+                            tint = PrimaryRed,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 },
                 title = {
                     Text(
@@ -446,9 +564,10 @@ fun DownloadsScreen(
                 },
                 text = {
                     Text(
-                        text = "Are you sure you want to delete \"${target.title}\"? This will permanently delete the downloaded video and free up storage space.",
+                        text = "Are you sure you want to delete \"${target.title}\"? This will permanently remove the video and free up storage space on your device.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        color = TextSecondary,
+                        lineHeight = 20.sp
                     )
                 },
                 confirmButton = {
@@ -502,6 +621,299 @@ fun DownloadsScreen(
                     }
                 },
                 containerColor = DarkCard
+            )
+        }
+    }
+}
+
+@Composable
+fun DownloadMovieCard(
+    item: DownloadedItem,
+    inAppProgress: com.ofc.movies.data.download.DownloadProgress?,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val isDownloading = inAppProgress?.status == "Downloading" || item.status == "Downloading"
+    val isQueued = inAppProgress?.status == "Queued" || item.status == "Queued"
+    val isFailed = item.status == "Failed"
+    val isReady = item.status == "Ready" || (!isDownloading && !isQueued && !isFailed)
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = DarkCard,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Poster
+            AsyncImage(
+                model = item.coverUrl,
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(55.dp)
+                    .height(80.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkSurfaceElevated)
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            // Details
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = RatingGold.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = item.quality,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = RatingGold,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+
+                    Text(text = "•", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+
+                    if (isDownloading) {
+                        val downloadedStr = if (inAppProgress != null && inAppProgress.bytesDownloaded > 0) {
+                            formatDownloadSize(inAppProgress.bytesDownloaded, 0)
+                        } else "0 MB"
+                        val totalStr = if (inAppProgress != null && inAppProgress.totalBytes > 0) {
+                            formatDownloadSize(inAppProgress.totalBytes, 0)
+                        } else item.sizeText
+
+                        val pct = if (inAppProgress != null && inAppProgress.percentage > 0) "${inAppProgress.percentage}%" else "Downloading"
+                        Text(
+                            text = "$downloadedStr / $totalStr ($pct)",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = PrimaryRed
+                        )
+                    } else if (isQueued) {
+                        Text(
+                            text = "${item.sizeText} • Waiting in queue",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    } else if (isFailed) {
+                        Text(
+                            text = "Download Failed",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = PrimaryRed
+                        )
+                    } else {
+                        Text(
+                            text = item.sizeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        Text(text = "•", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            text = "Ready to Watch",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF4CAF50)
+                        )
+                    }
+                }
+
+                if (isDownloading || isQueued) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val progressFraction = if (isDownloading && inAppProgress != null) {
+                        if (inAppProgress.percentage > 0) {
+                            (inAppProgress.percentage.toFloat() / 100f).coerceIn(0f, 1f)
+                        } else if (inAppProgress.totalBytes > 0 && inAppProgress.bytesDownloaded > 0) {
+                            (inAppProgress.bytesDownloaded.toFloat() / inAppProgress.totalBytes.toFloat()).coerceIn(0f, 1f)
+                        } else 0.05f
+                    } else 0f
+
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = PrimaryRed,
+                        trackColor = DarkSurfaceElevated
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // Actions
+            if (isReady) {
+                IconButton(
+                    onClick = onPlay,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(PrimaryRed, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DownloadEpisodeItemRow(
+    item: DownloadedItem,
+    inAppProgress: com.ofc.movies.data.download.DownloadProgress?,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val isDownloading = inAppProgress?.status == "Downloading" || item.status == "Downloading"
+    val isQueued = inAppProgress?.status == "Queued" || item.status == "Queued"
+    val isFailed = item.status == "Failed"
+    val isReady = item.status == "Ready" || (!isDownloading && !isQueued && !isFailed)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                if (isReady) onPlay()
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Episode Icon / Play Indicator
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(if (isReady) PrimaryRed else DarkSurfaceElevated),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isDownloading) {
+                val circleProgress = if (inAppProgress != null && inAppProgress.percentage > 0) {
+                    (inAppProgress.percentage.toFloat() / 100f).coerceIn(0.05f, 1f)
+                } else 0.05f
+                CircularProgressIndicator(
+                    progress = { circleProgress },
+                    modifier = Modifier.size(22.dp),
+                    color = PrimaryRed,
+                    strokeWidth = 2.5.dp,
+                    trackColor = DarkCard
+                )
+            } else if (isQueued) {
+                Icon(
+                    imageVector = Icons.Filled.Schedule,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Episode Info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = getEpisodeLabel(item),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.quality,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = RatingGold
+                )
+                Text(text = " • ", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+
+                if (isDownloading) {
+                    val downloadedStr = if (inAppProgress != null && inAppProgress.bytesDownloaded > 0) {
+                        formatDownloadSize(inAppProgress.bytesDownloaded, 0)
+                    } else "0 MB"
+                    val pct = if (inAppProgress != null && inAppProgress.percentage > 0) "${inAppProgress.percentage}%" else "Downloading"
+                    Text(
+                        text = "$downloadedStr ($pct)",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = PrimaryRed
+                    )
+                } else if (isQueued) {
+                    Text(text = "Queued", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                } else if (isFailed) {
+                    Text(text = "Failed", style = MaterialTheme.typography.labelSmall, color = PrimaryRed)
+                } else {
+                    Text(text = item.sizeText, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                }
+            }
+
+            if (isDownloading) {
+                Spacer(modifier = Modifier.height(6.dp))
+                val progressFraction = if (inAppProgress != null && inAppProgress.percentage > 0) {
+                    (inAppProgress.percentage.toFloat() / 100f).coerceIn(0f, 1f)
+                } else 0.05f
+                LinearProgressIndicator(
+                    progress = { progressFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = PrimaryRed,
+                    trackColor = DarkSurfaceElevated
+                )
+            }
+        }
+
+        IconButton(
+            onClick = onDelete,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "Delete",
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
             )
         }
     }

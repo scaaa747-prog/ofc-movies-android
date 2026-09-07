@@ -18,7 +18,17 @@ class MovieRepository(
         return true
     }
 
-    suspend fun getHomeSections(): Result<List<HomeCategoryRow>> = withContext(Dispatchers.IO) {
+    companion object {
+        // LRU memory cache for searches to avoid consuming internet on repeated queries or backspaces
+        private val searchCache = android.util.LruCache<String, List<MovieItem>>(100)
+        private var cachedHomeSections: List<HomeCategoryRow>? = null
+        private var lastHomeFetchTimeMs: Long = 0L
+    }
+
+    suspend fun getHomeSections(force: Boolean = false): Result<List<HomeCategoryRow>> = withContext(Dispatchers.IO) {
+        if (!force && cachedHomeSections != null && (System.currentTimeMillis() - lastHomeFetchTimeMs < 15 * 60 * 1000)) {
+            return@withContext Result.success(cachedHomeSections!!)
+        }
         try {
             val response = api.getTabOperating(tabId = 0, page = 1)
             val rawItems = response.data?.items ?: emptyList()
@@ -44,9 +54,18 @@ class MovieRepository(
                 }
             }
 
+            if (filteredSections.isNotEmpty()) {
+                cachedHomeSections = filteredSections
+                lastHomeFetchTimeMs = System.currentTimeMillis()
+            }
+
             Result.success(filteredSections)
         } catch (e: Exception) {
-            Result.failure(e)
+            if (cachedHomeSections != null) {
+                Result.success(cachedHomeSections!!)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -80,10 +99,6 @@ class MovieRepository(
         }
     }
 
-    companion object {
-        // LRU memory cache for searches to avoid consuming internet on repeated queries or backspaces
-        private val searchCache = android.util.LruCache<String, List<MovieItem>>(100)
-    }
 
     suspend fun searchMovies(query: String, page: Int = 1): Result<List<MovieItem>> = withContext(Dispatchers.IO) {
         val trimmed = query.trim().lowercase()
